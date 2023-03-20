@@ -5,14 +5,8 @@
 #include <algorithm>
 #include <cmath>
 #include <set>
-#include <functional>
 #include <map>
-#include <numeric>
-#include <stdexcept>
-#include <unordered_set>
-
 using namespace std;
-
 vector<string> docs = {
     "it is a good day, I like to stay here",
     "I am happy to be here",
@@ -34,7 +28,6 @@ vector<vector<string>> docs_words;
 set<string> vocab;
 unordered_map<string, int> v2i;
 unordered_map<int, string> i2v;
-
 void preprocess_docs() {
     for (string doc : docs) {
         vector<string> words;
@@ -71,7 +64,6 @@ void preprocess_docs() {
     }
 
 }
-
 // Define safe_log function to avoid log(0) errors
 double safe_log(double x) {
     if (x <= 0) {
@@ -80,30 +72,24 @@ double safe_log(double x) {
     return log(x);
 }
 enum class TFMethod { LOG, AUGMENTED, BOOLEAN, LOG_AVG };
-
 double log_tf(const double x) {
     return log(1 + x);
 }
-
 double augmented_tf(const double x, const vector<double>& max_tf) {
     return 0.5 + 0.5 * x / max_tf.front();
 }
-
 double boolean_tf(const double x) {
     return min(x, 1.0);
 }
-
 double log_avg_tf(const double x, const double avg_tf) {
     return (1 + safe_log(x)) / (1 + safe_log(avg_tf));
 }
-
 unordered_map<TFMethod, decltype(&log_tf)> tf_methods = {
     {TFMethod::LOG, log_tf},
     //{TFMethod::AUGMENTED, augmented_tf},
     {TFMethod::BOOLEAN, boolean_tf}
     //{TFMethod::LOG_AVG, bind(log_avg_tf, placeholders::_1, placeholders::_2)}
 };
-
 vector<double> get_tf(TFMethod method) {
     // term frequency: how frequent a word appears in a doc
     vector<double> tf(i2v.size() * docs_words.size(), 0.0); // [n_vocab * n_doc]
@@ -138,7 +124,17 @@ vector<double> get_tf(TFMethod method) {
 
     return weighted_tf;
 }
-
+vector<vector<double>> get_tf_log() {
+    vector<vector<double>> tf(docs_words.size(), vector<double>(0));
+    for (int i = 0; i < docs_words.size(); i++) {
+        vector<double> tf_doc(docs_words[i].size(), 0);
+        for (int j = 0; j < docs_words[i].size(); j++) {
+            tf_doc[j] = log(1 + (double)count(docs_words[i].begin(), docs_words[i].end(), docs_words[i][j]));
+        }
+        tf[i] = tf_doc;
+    }
+    return tf;
+}
 enum class IDFMethod { LOG, OTHER };
 double log_idf(const double df, const double N) {
     return log((N - df + 0.5) / (df + 0.5));
@@ -174,7 +170,17 @@ vector<double> get_idf(IDFMethod method) {
 
     return idf;
 }
-
+vector<vector<double>> calculate_tf_idf(const vector<vector<double>>& tf, const vector<double>& idf) {
+    vector<vector<double>> tf_idf;
+    for (const auto& row : tf) {
+        vector<double> row_tf_idf;
+        for (size_t i = 0; i < row.size(); ++i) {
+            row_tf_idf.push_back(row[i] * idf[i]);
+        }
+        tf_idf.push_back(row_tf_idf);
+    }
+    return tf_idf;
+}
 vector<double> cosine_similarity(const vector<double>& q, const vector<vector<double>>& tf_idf) {
     // Calculate unit vector of query
     double q_norm = 0.0;
@@ -213,10 +219,100 @@ vector<double> cosine_similarity(const vector<double>& q, const vector<vector<do
 
     return similarity;
 }
+vector<vector<int>> get_keywords(const vector<vector<double>>& tfidf, int doc_num, int kw_num) {
+    // 获取矩阵的列数，即关键词数
+    int num_keywords = tfidf.front().size();
+    // 创建一个二维向量用于保存每个文档的前KW_NUM个关键词的索引
+    vector<vector<int>> doc_keywords(doc_num, vector<int>(kw_num));
+    // 遍历每个文档
+    for (int i = 0; i < doc_num; ++i) {
+        // 创建一个二元组向量用于保存每个关键词的TF-IDF值和索引
+        vector<pair<double, int>> tfidf_idx(num_keywords);
+        // 将每个关键词的TF-IDF值和索引存储到二元组向量中
+        for (int j = 0; j < num_keywords; ++j) {
+            tfidf_idx[j] = make_pair(tfidf[i][j], j);
+        }
+        // 对二元组向量按照TF-IDF值从大到小排序
+        sort(tfidf_idx.begin(), tfidf_idx.end(), greater<pair<double, int>>());
+        // 取前KW_NUM个关键词的索引，存储到结果二维向量中
+        for (int k = 0; k < kw_num; ++k) {
+            doc_keywords[i][k] = tfidf_idx[k].second;
+        }
+    }
+    return doc_keywords;
+}
+vector<string> tokenize(const string& s) {
+    vector<string> tokens;
+    string token;
+    for (int i = 0; i < s.size(); i++) {
+        char c = s[i];
+        if (isalnum(c)) {
+            token += c;
+        }
+        else if (!token.empty()) {
+            tokens.push_back(token);
+            token.clear();
+        }
+    }
+    if (!token.empty()) {
+        tokens.push_back(token);
+    }
+    return tokens;
+}
+vector<int> docs_score(const vector<string>& q,const vector<vector<double>>& tf_idf,const vector<vector<int>>& keywords) {
+    // 计算查询词的tf-idf向量
+    vector<double> q_tf_idf(tf_idf[0].size(), 0.0);
+    unordered_map<int, int> q_keyword_map;
+    for (int i = 0; i < q.size(); ++i) {
+        if (q_keyword_map.count(i) == 0) {
+            q_keyword_map[i] = -1;
+        }
+        for (int j = 0; j < keywords.size(); ++j) {
+            if (keywords[j][0] == i) {
+                q_keyword_map[i] = j;
+                break;
+            }
+        }
+        if (q_keyword_map[i] != -1) {
+            for (int j = 0; j < tf_idf[q_keyword_map[i]].size(); ++j) {
+                q_tf_idf[j] += tf_idf[q_keyword_map[i]][j];
+            }
+        }
+    }
 
+    // 计算与每篇文档的余弦相似度，并返回文档索引降序排列
+    vector<pair<int, double>> scores(tf_idf.size());
+    for (int i = 0; i < tf_idf.size(); ++i) {
+        double dot_product = 0.0;
+        double q_norm = 0.0, doc_norm = 0.0;
+        for (int j = 0; j < tf_idf[i].size(); ++j) {
+            dot_product += q_tf_idf[j] * tf_idf[i][j];
+            q_norm += q_tf_idf[j] * q_tf_idf[j];
+            doc_norm += tf_idf[i][j] * tf_idf[i][j];
+        }
+        double score = dot_product / sqrt(q_norm * doc_norm);
+        scores[i] = { i, score };
+    }
+    sort(scores.begin(), scores.end(), [](const auto& a, const auto& b) {return a.second > b.second; });
 
+    // 返回文档索引降序排列
+    vector<int> doc_indices(tf_idf.size());
+    for (int i = 0; i < tf_idf.size(); ++i) {
+        doc_indices[i] = scores[i].first;
+    }
+    return doc_indices;
+}
 int main() {
-  
+    preprocess_docs();
+    auto tf = get_tf_log();
+    auto idf = get_idf(IDFMethod::LOG);
+    auto tf_idf = calculate_tf_idf(tf, idf);
+    auto keys = get_keywords(tf_idf, docs_words.size(), 3);
+    string q = "I get a coffee cup";
+    auto mes = tokenize(q);
+    auto score = docs_score(mes,tf_idf,keys);
+    cout << docs[score[0]] << endl;
+    return 0;
 }
 
 
