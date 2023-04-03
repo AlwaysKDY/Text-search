@@ -7,6 +7,7 @@
 #include <set>
 #include <map>
 using namespace std;
+
 vector<string> docs = {
     "it is a good day, I like to stay here",
     "I am happy to be here",
@@ -28,6 +29,7 @@ vector<vector<string>> docs_words;
 set<string> vocab;
 unordered_map<string, int> v2i;
 unordered_map<int, string> i2v;
+
 void preprocess_docs() {
     for (string doc : docs) {
         vector<string> words;
@@ -51,11 +53,13 @@ void preprocess_docs() {
         }
         docs_words.push_back(words);
     }
+
     for (auto words : docs_words) {
         for (auto w : words) {
             vocab.insert(w);
         }
     }
+
     int idx = 0;
     for (auto v : vocab) {
         v2i[v] = idx;
@@ -64,7 +68,8 @@ void preprocess_docs() {
     }
 
 }
-// Define safe_log function to avoid log(0) errors
+
+// TF方法
 double safe_log(double x) {
     if (x <= 0) {
         return 0;
@@ -86,55 +91,51 @@ double log_avg_tf(const double x, const double avg_tf) {
 }
 unordered_map<TFMethod, decltype(&log_tf)> tf_methods = {
     {TFMethod::LOG, log_tf},
-    //{TFMethod::AUGMENTED, augmented_tf},
+    // {TFMethod::AUGMENTED, augmented_tf},
     {TFMethod::BOOLEAN, boolean_tf}
-    //{TFMethod::LOG_AVG, bind(log_avg_tf, placeholders::_1, placeholders::_2)}
+    // {TFMethod::LOG_AVG, bind(log_avg_tf, placeholders::_1, placeholders::_2)}
 };
-vector<double> get_tf(TFMethod method) {
+
+// tf计算
+vector<double> get_tf(TFMethod method = TFMethod::LOG) {
     // term frequency: how frequent a word appears in a doc
-    vector<double> tf(i2v.size() * docs_words.size(), 0.0); // [n_vocab * n_doc]
-    vector<double> max_tf(docs_words.size(), 0.0);
+    vector<double> tf(i2v.size() * docs_words.size(), 0.0); // [n_vocab * n_doc] tf矩阵
+    vector<double> max_tf(docs_words.size(), 0.0);          // 每个句子最大单词tf
     for (int i = 0; i < docs_words.size(); ++i) {
-        map<string, int> counter;
+        map<string, int> counter;                           // 单词计数器
         for (const auto& word : docs_words[i]) {
             ++counter[word];
             max_tf[i] = max(max_tf[i], static_cast<double>(counter[word]));
         }
         for (const auto& word_count : counter) {
-            int v = v2i[word_count.first];
+            int id = v2i[word_count.first];                   
             double count = static_cast<double>(word_count.second);
-            tf[i * i2v.size() + v] = count / max_tf[i];
+            tf[i * i2v.size() + id] = count / max_tf[i];     // 计算初步tf（无log）
         }
     }
-
-    auto tf_fn = tf_methods.find(method);
+        
+    auto tf_fn = tf_methods.find(method);                   // tf方法
     if (tf_fn == tf_methods.end()) {
         throw invalid_argument("Invalid TF method");
     }
 
+    // 完成后的tf矩阵
     vector<double> weighted_tf(i2v.size() * docs_words.size(), 0.0);
     for (int i = 0; i < docs_words.size(); ++i) {
+        // 句子tf矩阵
         vector<double> tf_per_doc(i2v.size(), 0.0);
         copy(tf.begin() + i * i2v.size(), tf.begin() + (i + 1) * i2v.size(), tf_per_doc.begin());
-        double max_tf_per_doc = *max_element(tf_per_doc.begin(), tf_per_doc.end());
+        // double max_tf_per_doc = *max_element(tf_per_doc.begin(), tf_per_doc.end());
         transform(tf_per_doc.begin(), tf_per_doc.end(), weighted_tf.begin() + i * i2v.size(), [=](double t) {
             return tf_fn->second(t);
-            });
+        });
     }
 
     return weighted_tf;
 }
-vector<vector<double>> get_tf_log() {
-    vector<vector<double>> tf(docs_words.size(), vector<double>(0));
-    for (int i = 0; i < docs_words.size(); i++) {
-        vector<double> tf_doc(docs_words[i].size(), 0);
-        for (int j = 0; j < docs_words[i].size(); j++) {
-            tf_doc[j] = log(1 + (double)count(docs_words[i].begin(), docs_words[i].end(), docs_words[i][j]));
-        }
-        tf[i] = tf_doc;
-    }
-    return tf;
-}
+
+
+// IDF方法
 enum class IDFMethod { LOG, OTHER };
 double log_idf(const double df, const double N) {
     return log((N - df + 0.5) / (df + 0.5));
@@ -146,9 +147,11 @@ unordered_map<IDFMethod, decltype(&log_idf)> idf_methods = {
     {IDFMethod::LOG, log_idf},
     {IDFMethod::OTHER, other_idf}
 };
-vector<double> get_idf(IDFMethod method) {
+
+// IDF计算
+vector<double> get_idf(IDFMethod method= IDFMethod::LOG) {
     // inverse document frequency: low idf for a word appears in more docs, mean less important
-    vector<double> df(i2v.size());
+    vector<double> df(i2v.size());                  // 每个单词的出现次数
     for (int i = 0; i < i2v.size(); ++i) {
         int d_count = 0;
         for (const auto& d : docs_words) {
@@ -157,7 +160,7 @@ vector<double> get_idf(IDFMethod method) {
         df[i] = static_cast<double>(d_count);
     }
 
-    auto idf_fn = idf_methods.find(method);
+    auto idf_fn = idf_methods.find(method);         // idf方法
     if (idf_fn == idf_methods.end()) {
         throw invalid_argument("Invalid IDF method");
     }
@@ -170,12 +173,14 @@ vector<double> get_idf(IDFMethod method) {
 
     return idf;
 }
-vector<vector<double>> calculate_tf_idf(const vector<vector<double>>& tf, const vector<double>& idf) {
+
+// 矩阵计算tf * idf
+vector<vector<double>> calculate_tf_idf(const vector<double>& tf, const vector<double>& idf) {
     vector<vector<double>> tf_idf;
-    for (const auto& row : tf) {
+    for (int j = 0; j < i2v.size(); j++) {
         vector<double> row_tf_idf;
-        for (size_t i = 0; i < row.size(); ++i) {
-            row_tf_idf.push_back(row[i] * idf[i]);
+        for (int i = 0; i < docs_words.size(); i++) {
+            row_tf_idf.push_back(tf[i * i2v.size() + j] * idf[j]);
         }
         tf_idf.push_back(row_tf_idf);
     }
@@ -259,7 +264,7 @@ vector<string> tokenize(const string& s) {
     }
     return tokens;
 }
-vector<int> docs_score(const vector<string>& q,const vector<vector<double>>& tf_idf,const vector<vector<int>>& keywords) {
+vector<int> docs_score(const vector<string>& q, const vector<vector<double>>& tf_idf, const vector<vector<int>>& keywords) {
     // 计算查询词的tf-idf向量
     vector<double> q_tf_idf(tf_idf[0].size(), 0.0);
     unordered_map<int, int> q_keyword_map;
@@ -304,17 +309,17 @@ vector<int> docs_score(const vector<string>& q,const vector<vector<double>>& tf_
 }
 int main() {
     preprocess_docs();
-    auto tf = get_tf_log();
-    auto idf = get_idf(IDFMethod::LOG);
+    auto tf = get_tf();
+    auto idf = get_idf();
     auto tf_idf = calculate_tf_idf(tf, idf);
     auto keys = get_keywords(tf_idf, docs_words.size(), 3);
     string q = "I get a coffee cup";
     auto mes = tokenize(q);
-    auto score = docs_score(mes,tf_idf,keys);
-    cout << docs[score[0]] << endl;
+    auto score = docs_score(mes, tf_idf, keys);
+    for (int i = 0; i < 2; i++)
+        cout << docs[score[i]] << endl;
     return 0;
 }
-
 
 
 
