@@ -1,10 +1,12 @@
 # 程序设计综合实践课课设
 ## 选题：文本搜索
-### 进展：程序能运行，但结果和预期较大
+进展：程序能完美符合样例程序
+距离成品还差：
 
-删去了无用的get_tf_log函数登，现在能保证
-    preprocess_docs();
-    auto tf = get_tf();
-    auto idf = get_idf();
-    auto tf_idf = calculate_tf_idf(tf, idf);
-四个函数正确
+1.百万文本的倒排索引
+
+2.单词映射的时态转换
+
+3.神经网络精排(X)
+
+
