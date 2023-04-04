@@ -233,7 +233,7 @@ public:
         return similarity;
     }
     vector<int> docs_score(const vector<string>& q) {
-        // 计算查询词的tf-idf向量
+        // Calculate the tf-idf vector of the query
         vector<double> q_tf_idf(tf_idf[0].size(), 0.0);
         double q_avg_tf = 1.0;
         unordered_map<string, int> q_words_count;
@@ -255,12 +255,12 @@ public:
             }
         }
 
-        // 计算与每篇文档的余弦相似度，并返回文档索引降序排列
+        // Calculates the cosine similarity to each document and returns the document index in descending order
         vector<pair<int, double>> scores = cosine_similarity(q_tf_idf);
         
         sort(scores.begin(), scores.end(), [](const auto& a, const auto& b) {return a.second > b.second; });
 
-        // 返回文档索引降序排列
+        // Returns the document index in descending order
         vector<int> doc_indices(tf_idf.size());
         for (int i = 0; i < tf_idf.size(); ++i) {
             doc_indices[i] = scores[i].first;
