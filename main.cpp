@@ -8,9 +8,9 @@
 #include <map>
 using namespace std;
 
-// TF方法
+// TF method
 double safe_log(double x) {
-    if (x <= 0) { // !!!!!!!!!!!!!!!!!精度问题
+    if (x <= 0) { // !!!!!!!!!!!!!!!!!Double accuracy problem!!!!!!!!!!!!!!!!!!!!
         return 0;
     }
     return log(x);
@@ -27,7 +27,7 @@ double boolean_tf(const double x, const double avg_tf) {
 double log_avg_tf(const double x, const double avg_tf) {
     return (1 + safe_log(x)) / (1 + safe_log(avg_tf));
 }
-// IDF方法
+// IDF method
 double log_idf(const double df, const double N) {
     return log((N - df + 0.5) / (df + 0.5));
 }
@@ -121,11 +121,11 @@ public:
 
     }
     void get_tf() {
-        vector<vector<double>> pre_tf(docs_words.size(), vector<double>(i2v.size(), 0.0)); // [n_doc * n_vocab] tf矩阵
-        vector<double> max_tf(docs_words.size(), 0.0);          // 每个句子最大单词tf
+        vector<vector<double>> pre_tf(docs_words.size(), vector<double>(i2v.size(), 0.0)); // [n_doc * n_vocab] tf matrix
+        vector<double> max_tf(docs_words.size(), 0.0);          // Maximum word tf per sentence
         vector<double> avg_tf(docs_words.size(), 0.0);
         for (int i = 0; i < docs_words.size(); ++i) {
-            map<string, int> counter;                           // 单词计数器
+            map<string, int> counter;                           // Word counter
             set<string> unique_word;
             for (const auto& word : docs_words[i]) {
                 ++counter[word];
@@ -139,11 +139,11 @@ public:
             for (const auto& word_count : counter) {
                 int id = v2i[word_count.first];
                 double count = static_cast<double>(word_count.second);
-                pre_tf[i][id] = count / max_tf[i];         // 计算初步tf（无log）
+                pre_tf[i][id] = count / max_tf[i];         // Preliminary tf（no log）
             }
         }
 
-        auto tf_fn = tf_methods.find(TFM);                   // tf方法
+        auto tf_fn = tf_methods.find(TFM);                   // tf method
         if (tf_fn == tf_methods.end()) {
             throw invalid_argument("Invalid TF method");
         }
@@ -157,7 +157,7 @@ public:
         }
     }
     void get_idf() {
-        vector<double> df(i2v.size());                  // 每个单词的出现次数
+        vector<double> df(i2v.size());                  // The number of times each word appears
         for (int i = 0; i < i2v.size(); ++i) {
             int d_count = 0;
             for (const auto& d : docs_words) {
@@ -166,7 +166,7 @@ public:
             df[i] = static_cast<double>(d_count);
         }
 
-        auto idf_fn = idf_methods.find(IDFM);         // idf方法
+        auto idf_fn = idf_methods.find(IDFM);         // idf method
         if (idf_fn == idf_methods.end()) {
             throw invalid_argument("Invalid IDF method");
         }
@@ -187,7 +187,7 @@ public:
         }
     }
     vector<double> get_cosine(const vector<double>& tmp_tf_idf) {
-        double q_norm = 0.0;    // query的范数
+        double q_norm = 0.0;    // The norm of query
         for (double x : tmp_tf_idf) {
             q_norm += x * x;
         }
@@ -203,7 +203,7 @@ public:
         string token;
         for (int i = 0; i < s.size(); i++) {
             char c = s[i];
-            if (isalnum(c)) { // 判断是否是字母或数字
+            if (isalnum(c)) { 
                 token += c;
             }
             else if (!token.empty()) {
@@ -308,7 +308,3 @@ int main() {
     }
     return 0;
 }
-
-
-
-
