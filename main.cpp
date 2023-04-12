@@ -6,6 +6,7 @@
 #include <cmath>
 #include <set>
 #include <map>
+#include<fstream>
 using namespace std;
 
 // TF method
@@ -56,7 +57,7 @@ public:
     vector<vector<double>> unit_ds; // [n_docs][n_vocab]
 public:
 
-    TF_IDF(const vector<string>& _docs, TFMethod _TFM = TFMethod::LOG, IDFMethod _TDFM = IDFMethod::LOG):
+    TF_IDF(const vector<string>& _docs, TFMethod _TFM = TFMethod::LOG, IDFMethod _TDFM = IDFMethod::LOG) :
         docs(_docs), TFM(_TFM), IDFM(_TDFM)
     {
         tf_methods = {
@@ -198,12 +199,13 @@ public:
         }
         return unit_q;
     }
+
     vector<string> tokenize(const string& s) {
         vector<string> tokens;
         string token;
         for (int i = 0; i < s.size(); i++) {
             char c = s[i];
-            if (isalnum(c)) { 
+            if (isalnum(c)) {
                 token += c;
             }
             else if (!token.empty()) {
@@ -232,6 +234,7 @@ public:
 
         return similarity;
     }
+
     vector<int> docs_score(const vector<string>& q) {
         // Calculate the tf-idf vector of the query
         vector<double> q_tf_idf(tf_idf[0].size(), 0.0);
@@ -245,6 +248,7 @@ public:
                 q_words_count[q[i]]++;
             }
         }
+
         for (int i = 0; i < tf_idf[0].size(); i++) {
             if (q_words_count.count(i2v[i]) == 0) {
                 q_tf_idf[i] = tf_methods[TFM](0, q_avg_tf) * idf[i];
@@ -257,7 +261,7 @@ public:
 
         // Calculates the cosine similarity to each document and returns the document index in descending order
         vector<pair<int, double>> scores = cosine_similarity(q_tf_idf);
-        
+
         sort(scores.begin(), scores.end(), [](const auto& a, const auto& b) {return a.second > b.second; });
 
         // Returns the document index in descending order
@@ -279,32 +283,45 @@ public:
         return top_similar_docs;
     }
 };
+void get_docs(string docs_name, std::vector<std::string>& docs) {//传入引用，减少拷贝消耗
+    std::ifstream file(docs_name);
+    std::string line;
+    std::string paragraph;
+
+    while (!std::getline(file, line).fail()) {//当未到文件尾
+        if (line.empty()) {//若该段落结束
+            if (!paragraph.empty()) {
+                docs.push_back(paragraph);
+                paragraph.clear();
+            }
+        }
+        else {//若该段落未结束
+            if (!paragraph.empty()) {
+                paragraph += '\n';
+            }
+            paragraph += line;
+        }
+    }
+
+    if (!paragraph.empty()) {
+        docs.push_back(paragraph);
+    }
+}
 
 int main() {
-    vector<string> docs = {
-    "it is a good day, I like to stay here",
-    "I am happy to be here",
-    "I am bob",
-    "it is sunny today",
-    "I have a party today",
-    "it is a dog and that is a cat",
-    "there are dog and cat on the tree",
-    "I study hard this morning",
-    "today is a good day",
-    "tomorrow will be a good day",
-    "I like coffee, I like book and I like apple",
-    "I do not like it",
-    "I am kitty, I like bob",
-    "I do not care who like bob, but I like kitty",
-    "It is coffee time, bring your cup"
-    };
 
-    string q = "I get a coffee cup";
+    string docs_name("doc.txt"); 
+    string q = "I think it be no other but e'en so";
+
+    vector<string> docs;
+    get_docs(docs_name, docs);
 
     TF_IDF tf_idf(docs);
     vector<string> top_similar_docs = tf_idf.query(q);
     for (int i = 0; i < top_similar_docs.size(); i++) {
+        cout << '['<<"NO." << i+1 << ']' << endl;//匹配度最高的第i个段落
         cout << top_similar_docs[i] << endl;
     }
+
     return 0;
 }
