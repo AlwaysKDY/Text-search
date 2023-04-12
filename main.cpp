@@ -6,8 +6,7 @@
 #include <cmath>
 #include <set>
 #include <map>
-#include<fstream>
-using namespace std;
+#include <fstream>
 
 // TF method
 double safe_log(double x) {
@@ -35,26 +34,33 @@ double log_idf(const double df, const double N) {
 double other_idf(const double df, const double N) {
     return (N + 1) / (df + 1);
 }
+using namespace std;
 
-enum class TFMethod { LOG, AUGMENTED, BOOLEAN, LOG_AVG };
-enum class IDFMethod { LOG, OTHER };
+class Sparse { 
+public:
+    int id;
+    double val; 
+};
+
 class TF_IDF {
 public:
+    enum class TFMethod { LOG, AUGMENTED, BOOLEAN, LOG_AVG };
+    enum class IDFMethod { LOG, OTHER };
     unordered_map<TFMethod, decltype(&log_tf)> tf_methods;
     unordered_map<IDFMethod, decltype(&log_idf)> idf_methods;
+
+    TFMethod TFM;
+    IDFMethod IDFM;
 
     vector<string> docs;
     vector<vector<string>> docs_words;
     set<string> vocab;
     unordered_map<string, int> v2i;
     unordered_map<int, string> i2v;
-    TFMethod TFM;
-    IDFMethod IDFM;
 
-    vector<vector<double>> tf;      // [n_docs][n_vocab]
-    vector<double> idf;             // [n_vocab]
-    vector<vector<double>> tf_idf;  // [n_docs][n_vocab]
-    vector<vector<double>> unit_ds; // [n_docs][n_vocab]
+    vector<vector<Sparse>> tf;              // [n_docs](vocab_j)
+    vector<double> idf;                     // [n_vocab]
+    vector<vector<Sparse>> tf_idf;          // [n_docs](vocab_j)
 public:
 
     TF_IDF(const vector<string>& _docs, TFMethod _TFM = TFMethod::LOG, IDFMethod _TDFM = IDFMethod::LOG) :
@@ -75,11 +81,7 @@ public:
         get_tf();
         get_idf();
         calculate_tf_idf();
-        // Calculate unit vectors of documents
-        unit_ds.resize(tf_idf.size());
-        for (int i = 0; i < tf_idf.size(); ++i) {
-            unit_ds[i] = get_cosine(tf_idf[i]);
-        }
+        cosine_transform(tf_idf);
     }
 
     // Basic treatment method
@@ -122,11 +124,11 @@ public:
 
     }
     void get_tf() {
-        vector<vector<double>> pre_tf(docs_words.size(), vector<double>(i2v.size(), 0.0)); // [n_doc * n_vocab] tf matrix
-        vector<double> max_tf(docs_words.size(), 0.0);          // Maximum word tf per sentence
-        vector<double> avg_tf(docs_words.size(), 0.0);
+        tf.resize(docs.size());                         // [n_docs](vocab_j)  
+        vector<double> max_tf(docs_words.size(), 0.0);  // [n_docs}
+        vector<double> avg_tf(docs_words.size(), 0.0);  // [n_docs]
         for (int i = 0; i < docs_words.size(); ++i) {
-            map<string, int> counter;                           // Word counter
+            map<string, int> counter;                   // Word counter
             set<string> unique_word;
             for (const auto& word : docs_words[i]) {
                 ++counter[word];
@@ -140,7 +142,7 @@ public:
             for (const auto& word_count : counter) {
                 int id = v2i[word_count.first];
                 double count = static_cast<double>(word_count.second);
-                pre_tf[i][id] = count / max_tf[i];         // Preliminary tf（no log）
+                tf[i].push_back({id, count / max_tf[i]}); // Preliminary tf（no log）
             }
         }
 
@@ -149,11 +151,12 @@ public:
             throw invalid_argument("Invalid TF method");
         }
 
-        // 完成后的tf矩阵
-        tf.resize(docs_words.size(), vector<double>(i2v.size(), 0.0));
-        for (int i = 0; i < docs_words.size(); i++) {
-            for (int j = 0; j < i2v.size(); j++) {
-                tf[i][j] = tf_fn->second(pre_tf[i][j], avg_tf[i]);
+        // get tf matrix
+        for (int i = 0; i < tf.size(); i++) {
+            for (int j = 0; j < tf[i].size(); j++) {
+                int id = tf[i][j].id;
+                double val = tf[i][j].val;
+                tf[i][j].val = tf_fn->second(val, avg_tf[i]);
             }
         }
     }
@@ -179,27 +182,44 @@ public:
         }
     }
     void calculate_tf_idf() {
-        for (int i = 0; i < docs_words.size(); i++) {
-            vector<double> row_tf_idf;
-            for (int j = 0; j < i2v.size(); j++) {
-                row_tf_idf.push_back(tf[i][j] * idf[j]);
+        tf_idf.resize(docs.size());
+        for (int i = 0; i < tf.size(); i++) {
+            for (int j = 0; j < tf[i].size(); j++) {
+                int id = tf[i][j].id;
+                tf_idf[i].push_back({ id, tf[i][j].val * idf[id] });
             }
-            tf_idf.push_back(row_tf_idf);
         }
     }
-    vector<double> get_cosine(const vector<double>& tmp_tf_idf) {
-        double q_norm = 0.0;    // The norm of query
-        for (double x : tmp_tf_idf) {
-            q_norm += x * x;
-        }
-        q_norm = sqrt(q_norm);
-        vector<double> unit_q(tmp_tf_idf.size());
+    void cosine_transform(vector<vector<Sparse>>& tmp_tf_idf) {
+        vector<double> tmp_norm(tmp_tf_idf.size(), 0.0); // The norm of sentence
         for (int i = 0; i < tmp_tf_idf.size(); i++) {
-            unit_q[i] = tmp_tf_idf[i] / q_norm;
+            for (int j = 0; j < tmp_tf_idf[i].size(); j++) {
+                tmp_norm[i] += tmp_tf_idf[i][j].val * tmp_tf_idf[i][j].val;
+            }
         }
-        return unit_q;
-    }
 
+        for (int i = 0; i < tmp_norm.size(); i++) {
+            tmp_norm[i] = sqrt(tmp_norm[i]);
+        }
+        
+        for (int i = 0; i < tmp_tf_idf.size(); i++) {
+            for (int j = 0; j < tmp_tf_idf[i].size(); j++) {
+                tmp_tf_idf[i][j].val /= tmp_norm[i];
+            }
+        }
+    }
+    void cosine_transform(vector<Sparse>& tmp_tf_idf) {
+        double tmp_norm = 0.0; // The norm of sentence
+        for (int j = 0; j < tmp_tf_idf.size(); j++) {
+            tmp_norm += tmp_tf_idf[j].val * tmp_tf_idf[j].val;
+        }
+
+        tmp_norm = sqrt(tmp_norm);
+
+        for (int i = 0; i < tmp_tf_idf.size(); i++) {
+            tmp_tf_idf[i].val /= tmp_norm;
+        }
+    }
     vector<string> tokenize(const string& s) {
         vector<string> tokens;
         string token;
@@ -220,24 +240,31 @@ public:
     }
 
     // Approach to the query
-    vector<pair<int, double>> cosine_similarity(const vector<double>& q_tf_idf) {
+    vector<pair<int, double>> cosine_similarity(vector<Sparse>& q_tf_idf) {
         // Calculate unit vector of query
-        vector<double> unit_q = get_cosine(q_tf_idf);
-        vector<pair<int, double>> similarity(tf_idf.size());
-        for (int i = 0; i < tf_idf.size(); ++i) {
-            double score = 0.0;
-            for (int j = 0; j < tf_idf[i].size(); ++j) {
-                score += unit_ds[i][j] * unit_q[j];
+        cosine_transform(q_tf_idf);
+        vector<pair<int, double>> similarity(docs.size());
+        for (int i = 0; i < tf_idf.size(); i++) {
+            double similarity_val = 0.0;
+            for (int j1 = 0; j1 < tf_idf[i].size();) {
+                for (int j2 = 0; j2 < q_tf_idf.size(); ) {
+                    int id1 = tf_idf[i][j1].id, id2 = q_tf_idf[j2].id;
+                    double val1 = tf_idf[i][j1].val, val2 = q_tf_idf[j2].val;
+                    if (id1 == id2) {
+                        similarity_val += val1 * val2;
+                        j1++; j2++;
+                    }
+                    else if (id1 > id2) j2++;
+                    else j1++;
+                }
             }
-            similarity[i] = { i, score };
         }
 
         return similarity;
     }
-
     vector<int> docs_score(const vector<string>& q) {
         // Calculate the tf-idf vector of the query
-        vector<double> q_tf_idf(tf_idf[0].size(), 0.0);
+        vector<Sparse> q_tf_idf(vocab.size());
         double q_avg_tf = 1.0;
         unordered_map<string, int> q_words_count;
         for (int i = 0; i < q.size(); ++i) {
@@ -249,13 +276,14 @@ public:
             }
         }
 
-        for (int i = 0; i < tf_idf[0].size(); i++) {
-            if (q_words_count.count(i2v[i]) == 0) {
-                q_tf_idf[i] = tf_methods[TFM](0, q_avg_tf) * idf[i];
-            }
-            else {
-                int count = q_words_count[i2v[i]];
-                q_tf_idf[i] = tf_methods[TFM](count, q_avg_tf) * idf[i];
+        auto tf_fn = tf_methods.find(TFM);                   // tf method
+        if (tf_fn == tf_methods.end()) {
+            throw invalid_argument("Invalid TF method");
+        }
+
+        for (int i = 0; i < vocab.size(); i++) {
+            if (q_words_count.count(i2v[i]) != 0) {
+                q_tf_idf.push_back({ i, tf_fn->second(q_words_count[i2v[i]], q_avg_tf) * idf[i] });
             }
         }
 
