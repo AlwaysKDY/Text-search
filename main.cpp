@@ -43,6 +43,15 @@ public:
     double val;
 };
 
+void get_docs(string docs_name, vector<string>& docs) {//传入引用，减少拷贝消耗
+    ifstream file(docs_name);
+    string line;
+
+    while (!getline(file, line).fail()) {//当未到文件尾
+        docs.push_back(line);
+    }
+}
+
 class TF_IDF {
 public:
     enum class TFMethod { LOG, AUGMENTED, BOOLEAN, LOG_AVG };
@@ -56,6 +65,8 @@ public:
     vector<string> docs;
     vector<vector<string>> docs_words;
     set<string> vocab;
+    vector<string> stop_words;
+    string stop_data_path;
     unordered_map<string, int> v2i;
     unordered_map<int, string> i2v;
 
@@ -64,8 +75,8 @@ public:
     vector<vector<Sparse>> tf_idf;          // [n_docs](vocab_j)
 public:
 
-    TF_IDF(const vector<string>& _docs, TFMethod _TFM = TFMethod::LOG, IDFMethod _TDFM = IDFMethod::LOG) :
-        docs(_docs), TFM(_TFM), IDFM(_TDFM)
+    TF_IDF(const vector<string>& _docs, string _stop_data_path, TFMethod _TFM = TFMethod::LOG_AVG, IDFMethod _TDFM = IDFMethod::LOG) :
+        docs(_docs), TFM(_TFM), IDFM(_TDFM), stop_data_path(_stop_data_path)
     {
         tf_methods = {
             {TFMethod::LOG, log_tf},
@@ -87,7 +98,7 @@ public:
 
     // Basic treatment method
     void preprocess_docs() {
-        for (string doc : docs) {
+        for (const string& doc : docs) {
             vector<string> words;
             string word = "";
             for (char c : doc) {
@@ -116,13 +127,17 @@ public:
             }
         }
 
+        get_docs(stop_data_path, stop_words);
+        for (const string& word : stop_words) {
+            vocab.erase(word);
+        }
+
         int idx = 0;
         for (auto v : vocab) {
             v2i[v] = idx;
             i2v[idx] = v;
             idx++;
         }
-
     }
     void get_tf() {
         tf.resize(docs.size());                         // [n_docs](vocab_j)  
@@ -143,7 +158,7 @@ public:
             for (const auto& word_count : counter) {
                 int id = v2i[word_count.first];
                 double count = static_cast<double>(word_count.second);
-                tf[i].push_back({ id, count / (double)docs_words[i].size()}); 
+                tf[i].push_back({ id, count / (double)max_tf[i]});
             }
         }
 
@@ -290,7 +305,7 @@ public:
         vector<Sparse> q_tf_idf;
         for (int i = 0; i < vocab.size(); i++) {
             if (q_words_count[i] != 0) {
-                q_tf_idf.push_back({ i, tf_fn->second(q_words_count[i] / q_max_tf, q_avg_tf) * idf[i]});
+                q_tf_idf.push_back({ i, tf_fn->second(q_words_count[i] / q_max_tf, q_avg_tf) * idf[i] });
             }
         }
 
@@ -318,25 +333,18 @@ public:
         return top_similar_docs;
     }
 };
-void get_docs(string docs_name, vector<string>& docs) {//传入引用，减少拷贝消耗
-    ifstream file(docs_name);
-    string line;
-
-    while (!getline(file, line).fail()) {//当未到文件尾
-        docs.push_back(line);
-    }
-}
 
 int main() {
 
     string docs_path("C:\\Users\\user\\Desktop\\doc.txt");
+    string stop_data_path("C:\\Users\\user\\Desktop\\stop.txt");
     string q = "driven through midwicket for a couple of runs";
     // "around the wicket"(exact search similar to google search)
 
     vector<string> docs;
     get_docs(docs_path, docs);
 
-    TF_IDF tf_idf(docs);
+    TF_IDF tf_idf(docs, stop_data_path);
     vector<string> top_similar_docs = tf_idf.query(q, 5);
     for (int i = 0; i < top_similar_docs.size(); i++) {
         cout << '[' << "NO." << i + 1 << ']' << endl;//匹配度最高的第i个段落
