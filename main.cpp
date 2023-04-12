@@ -143,7 +143,7 @@ public:
             for (const auto& word_count : counter) {
                 int id = v2i[word_count.first];
                 double count = static_cast<double>(word_count.second);
-                tf[i].push_back({ id, count / max_tf[i] }); // Preliminary tf（no log）
+                tf[i].push_back({ id, count / (double)docs_words[i].size()}); 
             }
         }
 
@@ -321,42 +321,27 @@ public:
 void get_docs(string docs_name, vector<string>& docs) {//传入引用，减少拷贝消耗
     ifstream file(docs_name);
     string line;
-    string paragraph;
 
     while (!getline(file, line).fail()) {//当未到文件尾
-        if (line.empty()) {//若该段落结束
-            if (!paragraph.empty()) {
-                docs.push_back(paragraph);
-                paragraph.clear();
-            }
-        }
-        else {//若该段落未结束
-            if (!paragraph.empty()) {
-                paragraph += '\n';
-            }
-            paragraph += line;
-        }
-    }
-
-    if (!paragraph.empty()) {
-        docs.push_back(paragraph);
+        docs.push_back(line);
     }
 }
 
 int main() {
 
-    string docs_path("doc.txt");
-    string q = "I think it be no other but e'en so";
+    string docs_path("C:\\Users\\user\\Desktop\\doc.txt");
+    string q = "driven through midwicket for a couple of runs";
+    // "around the wicket"(exact search similar to google search)
 
     vector<string> docs;
     get_docs(docs_path, docs);
 
     TF_IDF tf_idf(docs);
-    vector<string> top_similar_docs = tf_idf.query(q);
+    vector<string> top_similar_docs = tf_idf.query(q, 5);
     for (int i = 0; i < top_similar_docs.size(); i++) {
         cout << '[' << "NO." << i + 1 << ']' << endl;//匹配度最高的第i个段落
         cout << top_similar_docs[i] << endl;
-        cout << endl;
+        cout << "-------------------------------------" << endl;
     }
 
     return 0;
