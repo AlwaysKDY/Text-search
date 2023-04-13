@@ -37,46 +37,92 @@ double other_idf(const double df, const double N) {
 }
 using namespace std;
 
-class Sparse {
+class Trie {
+    struct Node {
+    public:
+        bool is_word;
+        int count;
+        map<char, Node*> child;
+    public:
+        Node(bool _is_word = false) : is_word(_is_word), count(0) {
+
+        }
+    };
 public:
-    int id;
-    double val;
+    Node* root;
+
+public:
+    Trie() {
+        root = new Node();
+    }
+
+    void insert(const string& sentence) {
+        Node* p = root;
+        for (const char& c : sentence) {
+            if (p->child.count(c) == 0) {
+                p->child[c] = new Node();
+            }
+            p = p->child[c];
+        }
+        p->is_word = true;
+        p->count++;
+    }
+
+    int find(const string& sentence) {
+        Node* p = root;
+        for (const char& c : sentence) {
+            if (p->child.count(c) == 0) {
+                return 0;
+            }
+            p = p->child[c];
+        }
+
+        if (p->is_word == true) {
+            return p->count;
+        }
+        else return 0;
+    }
 };
 
-void get_docs(string docs_name, vector<string>& docs) {//传入引用，减少拷贝消耗
-    ifstream file(docs_name);
-    string line;
-
-    while (!getline(file, line).fail()) {//当未到文件尾
-        docs.push_back(line);
-    }
-}
-
 class TF_IDF {
+    struct Sparse {
+    public:
+        int id;
+        double val;
+    };
 public:
     enum class TFMethod { LOG, AUGMENTED, BOOLEAN, LOG_AVG };
     enum class IDFMethod { LOG, OTHER };
     unordered_map<TFMethod, decltype(&log_tf)> tf_methods;
     unordered_map<IDFMethod, decltype(&log_idf)> idf_methods;
 
+    // tf-idf methods
     TFMethod TFM;
     IDFMethod IDFM;
 
+    // raw data
+    string docs_data_path;
+    string stop_data_path;
     vector<string> docs;
+
+    // Trie attribute
+    Trie* docs_words_trie;
+    Trie* stop_words_trie;
+
+    // proprocessing data
     vector<vector<string>> docs_words;
     set<string> vocab;
-    vector<string> stop_words;
-    string stop_data_path;
     unordered_map<string, int> v2i;
     unordered_map<int, string> i2v;
 
+    // tf-idf matrix
     vector<vector<Sparse>> tf;              // [n_docs](vocab_j)
     vector<double> idf;                     // [n_vocab]
     vector<vector<Sparse>> tf_idf;          // [n_docs](vocab_j)
 public:
 
-    TF_IDF(const vector<string>& _docs, string _stop_data_path, TFMethod _TFM = TFMethod::LOG_AVG, IDFMethod _TDFM = IDFMethod::LOG) :
-        docs(_docs), TFM(_TFM), IDFM(_TDFM), stop_data_path(_stop_data_path)
+    TF_IDF(const string _docs_data_path, string _stop_data_path, TFMethod _TFM = TFMethod::LOG_AVG, IDFMethod _TDFM = IDFMethod::LOG) :
+        docs_data_path(_docs_data_path), TFM(_TFM), IDFM(_TDFM), stop_data_path(_stop_data_path), docs_words_trie(new Trie()), stop_words_trie(new Trie())
     {
         tf_methods = {
             {TFMethod::LOG, log_tf},
@@ -88,7 +134,9 @@ public:
             {IDFMethod::LOG, log_idf},
             {IDFMethod::OTHER, other_idf}
         };
-
+        
+        get_docs_data(docs_data_path);
+        get_stop_word(stop_data_path);
         preprocess_docs();
         get_tf();
         get_idf();
@@ -96,7 +144,24 @@ public:
         cosine_transform(tf_idf);
     }
 
-    // Basic treatment method
+    // Dataset preprocessing methods
+    void get_docs_data(const string file_path) {//传入引用，减少拷贝消耗
+        ifstream file(file_path);
+        string line;
+
+        while (!getline(file, line).fail()) {//当未到文件尾
+            docs.push_back(line);
+        }
+    }
+    void get_stop_word(const string file_path) {
+        ifstream file(file_path);
+        string line;
+
+        while (!getline(file, line).fail()) {//当未到文件尾
+            stop_words_trie->insert(line);
+        }
+
+    }
     void preprocess_docs() {
         for (const string& doc : docs) {
             vector<string> words;
@@ -116,7 +181,10 @@ public:
                 }
             }
             if (word != "") {
-                words.push_back(word);
+                if (stop_words_trie->find(word) == 0) {
+                    words.push_back(word);
+                    docs_words_trie->insert(word);
+                }
             }
             docs_words.push_back(words);
         }
@@ -127,11 +195,6 @@ public:
             }
         }
 
-        get_docs(stop_data_path, stop_words);
-        for (const string& word : stop_words) {
-            vocab.erase(word);
-        }
-
         int idx = 0;
         for (auto v : vocab) {
             v2i[v] = idx;
@@ -139,6 +202,8 @@ public:
             idx++;
         }
     }
+
+    // Basic treatment methods
     void get_tf() {
         tf.resize(docs.size());                         // [n_docs](vocab_j)  
         vector<double> max_tf(docs_words.size(), 0.0);  // [n_docs}
@@ -158,7 +223,7 @@ public:
             for (const auto& word_count : counter) {
                 int id = v2i[word_count.first];
                 double count = static_cast<double>(word_count.second);
-                tf[i].push_back({ id, count / (double)max_tf[i]});
+                tf[i].push_back({ id, count / (double)max_tf[i] });
             }
         }
 
@@ -179,11 +244,7 @@ public:
     void get_idf() {
         vector<double> df(i2v.size());                  // The number of times each word appears
         for (int i = 0; i < i2v.size(); ++i) {
-            int d_count = 0;
-            for (const auto& d : docs_words) {
-                d_count += count(d.begin(), d.end(), i2v[i]);
-            }
-            df[i] = static_cast<double>(d_count);
+            df[i] = static_cast<double>(docs_words_trie->find(i2v[i]));
         }
 
         auto idf_fn = idf_methods.find(IDFM);         // idf method
@@ -241,7 +302,7 @@ public:
         string token;
         for (int i = 0; i < s.size(); i++) {
             char c = s[i];
-            if (isalnum(c)) {
+            if (c != ' ') {
                 token += c;
             }
             else if (!token.empty()) {
@@ -255,7 +316,7 @@ public:
         return tokens;
     }
 
-    // Approach to the query
+    // Methods about the query
     vector<pair<int, double>> cosine_similarity(vector<Sparse>& q_tf_idf) {
         // Calculate unit vector of query
         cosine_transform(q_tf_idf);
@@ -321,36 +382,32 @@ public:
         }
         return doc_indices;
     }
-    vector<string> query(const string& q, int top_n = 3) {
+    void query(const string& q, int top_n = 3) {
         vector<string> q_tokenize = tokenize(q);
         vector<int> q_docs_score = docs_score(q_tokenize);
 
-        vector<string> top_similar_docs;
         for (int i = 0; i < top_n; i++) {
-            top_similar_docs.push_back(docs[q_docs_score[i]]);
+            cout << '[' << "NO." << i + 1 << ']' << endl; // 匹配度最高的第i个段落
+            for (const char& c : docs[q_docs_score[i]]) {
+                if (c != ' ') cout << c;
+            }
+            cout << endl << "-------------------------------------" << endl;
         }
-
-        return top_similar_docs;
     }
 };
 
 int main() {
 
-    string docs_path("C:\\Users\\user\\Desktop\\doc.txt");
-    string stop_data_path("C:\\Users\\user\\Desktop\\stop.txt");
-    string q = "driven through midwicket for a couple of runs";
-    // "around the wicket"(exact search similar to google search)
+    string docs_data_path("datasets\\chinese_separate_sentences.txt");
+    string stop_data_path("datasets\\chinese_stop_words.txt");
+    // string stop_data_path("datasets\\block_file.txt");
+    string dictionary_path("datasets\\chinese_dictionary.txt");
+    string q = "各项  工作  必须  以  经济  建设  为中心";
+    // string q = "driven through midwicket for a couple of runs";
+    // string q = "around the wicket"(exact search similar to google search)
 
-    vector<string> docs;
-    get_docs(docs_path, docs);
-
-    TF_IDF tf_idf(docs, stop_data_path);
-    vector<string> top_similar_docs = tf_idf.query(q, 5);
-    for (int i = 0; i < top_similar_docs.size(); i++) {
-        cout << '[' << "NO." << i + 1 << ']' << endl;//匹配度最高的第i个段落
-        cout << top_similar_docs[i] << endl;
-        cout << "-------------------------------------" << endl;
-    }
+    TF_IDF tf_idf(docs_data_path, stop_data_path);
+    tf_idf.query(q, 5);
 
     return 0;
 }
