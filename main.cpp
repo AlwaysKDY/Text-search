@@ -138,11 +138,23 @@ public:
 
     // debug 
     void test() {
-        get_dictionary();
-        wstring q1 = L"各项工作必须以经济建设为中心";
-        vector<wstring> ans = fo_max_match(q1);
+        std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 
-        cout << "OK";
+        std::ifstream ifs(L"C:\\Users\\user\\Desktop\\NLP\\data\\pku_training.utf8");
+        std::ofstream ofs("C:\\Users\\user\\Desktop\\-\\datasets\\chinese_sentenses.txt");
+        while (!ifs.eof())
+        {
+            string line;
+            getline(ifs, line);
+            wstring wb = conv.from_bytes(line);
+            wstring ob;
+            for (const wchar_t& c : wb) {
+                if (c != ' ')
+                    ob += c;
+            }
+            std::string narrowStr = conv.to_bytes(ob);
+            ofs << narrowStr << endl;
+        }
     }
     void work() {
         get_docs_data();
@@ -159,14 +171,13 @@ public:
     void get_docs_data() {//传入引用，减少拷贝消耗
         std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 
-        std::ifstream ifs(L"datasets\\pku_training.utf8");
+        std::ifstream ifs(L"datasets\\chinese_sentenses.txt");
         while (!ifs.eof())
         {
             string line;
             getline(ifs, line);
             wstring wb = conv.from_bytes(line);
             docs.push_back(wb);
-            docs_words_trie->insert(wb);
         }
     }
     void get_stop_word() {
@@ -295,34 +306,16 @@ public:
     }
     void preprocess_docs() {
         for (const wstring& doc : docs) {
-            vector<wstring> words;
-            wstring word = L"";
-            for (const wchar_t& c : doc) {
-                if (c == ' ') {
-                    if (word != L"") {
-                        words.push_back(word);
-                        word = L"";
-                    }
-                }
-                else if (c == ',' || c == '.') {
-                    continue;
-                }
-                else {
-                    word += c;
-                }
-            }
-            if (word != L"") {
-                if (stop_words_trie->find(word) == 0) {
-                    words.push_back(word);
-                    docs_words_trie->insert(word);
-                }
-            }
+            vector<wstring> words = fo_max_match(doc);
             docs_words.push_back(words);
         }
 
         for (auto words : docs_words) {
             for (auto w : words) {
-                vocab.insert(w);
+                if (stop_words_trie->find(w) != 0) {
+                    docs_words_trie->insert(w);
+                    vocab.insert(w);
+                }
             }
         }
 
