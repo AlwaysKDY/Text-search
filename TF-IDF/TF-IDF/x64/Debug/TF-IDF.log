@@ -1,0 +1,10 @@
+﻿  源.cpp
+C:\Users\user\Desktop\-\TF-IDF\TF-IDF\源.cpp(198,1): warning C4267: “参数”: 从“size_t”转换到“int”，可能丢失数据
+C:\Users\user\Desktop\-\TF-IDF\TF-IDF\源.cpp(236,1): warning C4267: “参数”: 从“size_t”转换到“int”，可能丢失数据
+C:\Users\user\Desktop\-\TF-IDF\TF-IDF\源.cpp(238,1): warning C4267: “参数”: 从“size_t”转换到“int”，可能丢失数据
+C:\Users\user\Desktop\-\TF-IDF\TF-IDF\源.cpp(252,1): warning C4267: “初始化”: 从“size_t”转换到“int”，可能丢失数据
+C:\Users\user\Desktop\-\TF-IDF\TF-IDF\源.cpp(273,1): warning C4267: “初始化”: 从“size_t”转换到“int”，可能丢失数据
+C:\Users\user\Desktop\-\TF-IDF\TF-IDF\源.cpp(362,41): warning C4244: “初始化”: 从“unsigned __int64”转换到“double”，可能丢失数据
+C:\Users\user\Desktop\-\TF-IDF\TF-IDF\源.cpp(362,24): warning C4244: “初始化”: 从“unsigned __int64”转换到“const double”，可能丢失数据
+C:\Users\user\Desktop\-\TF-IDF\TF-IDF\源.cpp(365,52): warning C4244: “参数”: 从“unsigned __int64”转换到“double”，可能丢失数据
+  TF-IDF.vcxproj -> C:\Users\user\Desktop\-\TF-IDF\x64\Debug\TF-IDF.exe
