@@ -9,6 +9,7 @@
 #include <set>
 #include <map>
 #include <fstream>
+#include <ctime>
 #include <windows.h>
 #include <wchar.h>
 
@@ -112,6 +113,7 @@ private:
 
     // proprocessing data
     vector<vector<wstring>> docs_words;
+    vector<int> to_raw_docs;
     set<wstring> vocab;
     unordered_map<wstring, int> v2i;
     unordered_map<int, wstring> i2v;
@@ -157,6 +159,34 @@ public:
     }
 
     // Dataset preprocessing methods
+    void get_stop_word() {
+        clock_t startime = clock();
+        std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
+
+        std::ifstream ifs(L"datasets\\chinese_stop_words.txt");
+        while (!ifs.eof())
+        {
+            string line;
+            getline(ifs, line);
+            wstring wb = conv.from_bytes(line);
+            stop_words_trie->insert(wb);
+        }
+        cout << "Load stop words: " << (double)(clock() - startime) / 1000 << "s" << endl;
+    }
+    void get_dictionary() {
+        clock_t startime = clock();
+        std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
+
+        std::ifstream ifs(L"datasets\\chinese_dictionary.txt");
+        while (!ifs.eof())
+        {
+            string line;
+            getline(ifs, line);
+            wstring wb = conv.from_bytes(line);
+            dictionary_trie->insert(wb);
+        }
+        cout << "Load dictionary: " << (double)(clock() - startime) / 1000 << "s" << endl;
+    }
     void get_query() {
         std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 
@@ -169,7 +199,8 @@ public:
             query_words_trie->insert(q_tokenize[i]);
         }
     }
-    void get_docs_data() {//¥´»Î“˝”√£¨ºı…ŸøΩ±¥œ˚∫ƒ
+    void get_docs_data() {//‰º†ÂÖ•ÂºïÁî®ÔºåÂáèÂ∞ëÊã∑Ë¥ùÊ∂àËÄó
+        clock_t startime = clock();
         std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 
         std::ifstream ifs(L"datasets\\chinese_sentenses.txt");
@@ -180,30 +211,7 @@ public:
             wstring wb = conv.from_bytes(line);
             docs.push_back(wb);
         }
-    }
-    void get_stop_word() {
-        std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
-
-        std::ifstream ifs(L"datasets\\chinese_stop_words.txt");
-        while (!ifs.eof())
-        {
-            string line;
-            getline(ifs, line);
-            wstring wb = conv.from_bytes(line);
-            stop_words_trie->insert(wb);
-        }
-    }
-    void get_dictionary() {
-        std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
-
-        std::ifstream ifs(L"datasets\\chinese_dictionary.txt");
-        while (!ifs.eof())
-        {
-            string line;
-            getline(ifs, line);
-            wstring wb = conv.from_bytes(line);
-            dictionary_trie->insert(wb);
-        }
+        cout << "Load docs data: " << (double)(clock() - startime) / 1000 << "s" << endl;
     }
 
     // Bidirectional maximum matching segmentation
@@ -233,7 +241,7 @@ public:
         vector<wstring> result;
         wstring tmp_word;
 
-        int index = sentence.size(); // ¬ıœÚ≥‰¬˙œ£Õ˚µƒŒ¥¿¥
+        int index = sentence.size(); // ËøàÂêëÂÖÖÊª°Â∏åÊúõÁöÑÊú™Êù•
         while (index >= 0) {
             for (int match_size = min(maxlen, index); match_size > 0; match_size--) {
                 tmp_word = sentence.substr(index - match_size, index);
@@ -253,16 +261,23 @@ public:
 
     }
     void preprocess_docs() {
+        clock_t startime = clock();
+        
+        int num = 0;
         for (const wstring& doc : docs) {
             vector<wstring> words = fo_max_match(doc);
             bool is_in = false;
             for (const wstring& w : words) {
-                if (query_words_trie->find(w) != 0)
+                if (query_words_trie->find(w) != 0) {
                     is_in = true;
+                    break;
+                }
             }
             if (is_in) {
+                to_raw_docs.push_back(num);
                 docs_words.push_back(words);
             }
+            num++;
         }
 
         for (auto words : docs_words) {
@@ -278,10 +293,12 @@ public:
             i2v[idx] = v;
             idx++;
         }
+        cout << "preprocess docs data: " << (double)(clock() - startime) / 1000 << "s" << endl;
     }
 
     // Basic methods
     void get_tf() {
+        clock_t startime = clock();
         tf.resize(docs_words.size());                         // [n_docs](vocab_j)  
         vector<double> max_tf(docs_words.size(), 0.0);  // [n_docs}
         vector<double> avg_tf(docs_words.size(), 0.0);  // [n_docs]
@@ -317,8 +334,10 @@ public:
                 tf[i][j].val = tf_fn->second(val, avg_tf[i]);
             }
         }
+        cout << "calculate tf: " << (double)(clock() - startime) / 1000 << "s" << endl;
     }
     void get_idf() {
+        clock_t startime = clock();
         vector<double> df(i2v.size());                  // The number of times each word appears
         for (int i = 0; i < i2v.size(); ++i) {
             df[i] = static_cast<double>(docs_words_trie->find(i2v[i]));
@@ -334,8 +353,10 @@ public:
         for (int i = 0; i < idf.size(); i++) {
             idf[i] = idf_fn->second(df[i], i2v.size());
         }
+        cout << "calculate idf: " << (double)(clock() - startime) / 1000 << "s" << endl;
     }
     void calculate_tf_idf() {
+        clock_t startime = clock();
         tf_idf.resize(docs.size());
         for (int i = 0; i < tf.size(); i++) {
             for (int j = 0; j < tf[i].size(); j++) {
@@ -343,6 +364,7 @@ public:
                 tf_idf[i].push_back({ id, tf[i][j].val * idf[id] });
             }
         }
+        cout << "calculate tf: " << (double)(clock() - startime) / 1000 << "s" << endl;
     }
     void cosine_transform(vector<vector<Sparse>>& tmp_tf_idf) {
         vector<double> tmp_norm(tmp_tf_idf.size(), 0.0); // The norm of sentence
@@ -460,14 +482,13 @@ public:
         return doc_indices;
     }
     void query(int top_n = 5) {
+        clock_t startime = clock();
         vector<int> q_docs_score = docs_score(q_tokenize);
-
-        wcout.imbue(locale("chs")); // ‘⁄øÿ÷∆Ã® ‰≥ˆ
+        cout << "Processing query: " << (double)(clock() - startime) / 1000 << "s" << endl;
+        wcout.imbue(locale("chs")); // Âú®ÊéßÂà∂Âè∞ËæìÂá∫
         for (int i = 0; i < top_n; i++) {
-            cout << '[' << "NO." << i + 1 << ']' << endl; // ∆•≈‰∂»◊Ó∏ﬂµƒµ⁄i∏ˆ∂Œ¬‰
-            for (const wstring& w : docs_words[q_docs_score[i]]) {
-                wcout << w;
-            }
+            cout << '[' << "NO." << i + 1 << ']' << endl; // ÂåπÈÖçÂ∫¶ÊúÄÈ´òÁöÑÁ¨¨i‰∏™ÊÆµËêΩ
+            wcout << docs[to_raw_docs[q_docs_score[i]]];
             cout << endl << "-------------------------------------" << endl;
         }
     }
