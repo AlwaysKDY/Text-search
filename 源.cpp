@@ -102,11 +102,13 @@ private:
 
     // raw data
     vector<wstring> docs;
+    vector<wstring> q_tokenize;
 
     // Trie attribute
     Trie* docs_words_trie;
     Trie* stop_words_trie;
     Trie* dictionary_trie;
+    Trie* query_words_trie;
 
     // proprocessing data
     vector<vector<wstring>> docs_words;
@@ -118,11 +120,12 @@ private:
     vector<vector<Sparse>> tf;              // [n_docs](vocab_j)
     vector<double> idf;                     // [n_vocab]
     vector<vector<Sparse>> tf_idf;          // [n_docs](vocab_j)
+
 public:
 
     TF_IDF(TFMethod _TFM = TFMethod::LOG_AVG, IDFMethod _TDFM = IDFMethod::LOG) :
         TFM(_TFM), IDFM(_TDFM),
-        docs_words_trie(new Trie()), stop_words_trie(new Trie()), dictionary_trie(new Trie())
+        docs_words_trie(new Trie()), stop_words_trie(new Trie()), dictionary_trie(new Trie()), query_words_trie(new Trie())
     {
         tf_methods = {
             {TFMethod::LOG, log_tf},
@@ -140,18 +143,32 @@ public:
     void test() {
 
     }
-    void work() {
-        get_docs_data();
+    void work(int top_n = 5) {
         get_stop_word();
         get_dictionary();
+        get_query();
+        get_docs_data();
         preprocess_docs();
         get_tf();
         get_idf();
         calculate_tf_idf();
         cosine_transform(tf_idf);
+        query(top_n);
     }
 
     // Dataset preprocessing methods
+    void get_query() {
+        std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
+
+        std::ifstream ifs(L"datasets\\query.txt");
+        string line;
+        getline(ifs, line);
+        wstring wb = conv.from_bytes(line);
+        q_tokenize = fo_max_match(wb);
+        for (int i = 0; i < q_tokenize.size(); i++) {
+            query_words_trie->insert(q_tokenize[i]);
+        }
+    }
     void get_docs_data() {//传入引用，减少拷贝消耗
         std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 
@@ -188,60 +205,6 @@ public:
             dictionary_trie->insert(wb);
         }
     }
-    std::string String_TO_UTF8(std::string str)
-    {
-
-        int nwLen = ::MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, NULL, 0);
-        wchar_t* pwBuf = new wchar_t[nwLen + 1];
-        ZeroMemory(pwBuf, nwLen * 2 + 2);
-
-        ::MultiByteToWideChar(CP_ACP, 0, str.c_str(), str.length(), pwBuf, nwLen);
-
-        int nLen = ::WideCharToMultiByte(CP_UTF8, 0, pwBuf, -1, NULL, NULL, NULL, NULL);
-
-        char* pBuf = new char[nLen + 1];
-        ZeroMemory(pBuf, nLen + 1);
-
-        ::WideCharToMultiByte(CP_UTF8, 0, pwBuf, nwLen, pBuf, nLen, NULL, NULL);
-
-        std::string retStr(pBuf);
-
-        delete[]pwBuf;
-        delete[]pBuf;
-
-        pwBuf = NULL;
-        pBuf = NULL;
-
-        return retStr;
-
-    }
-    std::string UTF8_To_String(const string& s)
-    {
-        if (s.empty())
-        {
-            return string();
-        }
-
-        wstring result;
-
-        int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, NULL, 0);
-        wchar_t* buffer = new wchar_t[n];
-
-        ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, buffer, n);
-
-        result = buffer;
-        delete[] buffer;
-
-        string result2;
-        int len = WideCharToMultiByte(CP_ACP, 0, result.c_str(), result.size(), NULL, 0, NULL, NULL);
-        char* buffer2 = new char[len + 1];
-        WideCharToMultiByte(CP_ACP, 0, result.c_str(), result.size(), buffer2, len, NULL, NULL);
-        buffer2[len] = '\0';
-        result2.append(buffer2);
-        delete[] buffer2;
-
-        return result2;
-    }
 
     // Bidirectional maximum matching segmentation
     vector<wstring> fo_max_match(const wstring& sentence, const int maxlen = 6) {
@@ -270,7 +233,7 @@ public:
         vector<wstring> result;
         wstring tmp_word;
 
-        int index = sentence.size();
+        int index = sentence.size(); // 迈向充满希望的未来
         while (index >= 0) {
             for (int match_size = min(maxlen, index); match_size > 0; match_size--) {
                 tmp_word = sentence.substr(index - match_size, index);
@@ -292,7 +255,14 @@ public:
     void preprocess_docs() {
         for (const wstring& doc : docs) {
             vector<wstring> words = fo_max_match(doc);
-            docs_words.push_back(words);
+            bool is_in = false;
+            for (const wstring& w : words) {
+                if (query_words_trie->find(w) != 0)
+                    is_in = true;
+            }
+            if (is_in) {
+                docs_words.push_back(words);
+            }
         }
 
         for (auto words : docs_words) {
@@ -310,9 +280,9 @@ public:
         }
     }
 
-    // Basic  methods
+    // Basic methods
     void get_tf() {
-        tf.resize(docs.size());                         // [n_docs](vocab_j)  
+        tf.resize(docs_words.size());                         // [n_docs](vocab_j)  
         vector<double> max_tf(docs_words.size(), 0.0);  // [n_docs}
         vector<double> avg_tf(docs_words.size(), 0.0);  // [n_docs]
         for (int i = 0; i < docs_words.size(); ++i) {
@@ -423,7 +393,7 @@ public:
         return tokens;
     }
 
-    // Methods about the query
+    // Query methods
     vector<pair<int, double>> cosine_similarity(vector<Sparse>& q_tf_idf) {
         // Calculate unit vector of query
         cosine_transform(q_tf_idf);
@@ -489,36 +459,23 @@ public:
         }
         return doc_indices;
     }
-    void query(const wstring& q, int top_n = 5) {
-        vector<wstring> q_tokenize = fo_max_match(q);
+    void query(int top_n = 5) {
         vector<int> q_docs_score = docs_score(q_tokenize);
 
-        wcout.imbue(locale("chs"));
+        wcout.imbue(locale("chs")); // 在控制台输出
         for (int i = 0; i < top_n; i++) {
             cout << '[' << "NO." << i + 1 << ']' << endl; // 匹配度最高的第i个段落
-            wcout << docs[q_docs_score[i]];
+            for (const wstring& w : docs_words[q_docs_score[i]]) {
+                wcout << w;
+            }
             cout << endl << "-------------------------------------" << endl;
         }
     }
 };
 
-wstring get_query() {
-    std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
-
-    std::ifstream ifs(L"datasets\\query.txt");
-    string line;
-    getline(ifs, line);
-    wstring wb = conv.from_bytes(line);
-    return wb;
-}
-
 int main() {
-
-    wstring q1 = get_query();
-
     TF_IDF* tf_idf = new TF_IDF();
     tf_idf->work();
-    tf_idf->query(q1);
 
     return 0;
 }
