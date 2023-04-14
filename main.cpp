@@ -502,11 +502,19 @@ public:
     }
 };
 
+wstring get_query() {
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
+
+    std::ifstream ifs(L"datasets\\query.txt");
+    string line;
+    getline(ifs, line);
+    wstring wb = conv.from_bytes(line);
+    return wb;
+}
+
 int main() {
 
-    wstring q1 = L"各项工作必须以经济建设为中心";
-    string q2 = "driven through midwicket for a couple of runs";
-    string q3 = "around the wicket";
+    wstring q1 = get_query();
 
     TF_IDF* tf_idf = new TF_IDF();
     tf_idf->work();
