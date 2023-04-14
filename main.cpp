@@ -138,23 +138,7 @@ public:
 
     // debug 
     void test() {
-        std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 
-        std::ifstream ifs(L"C:\\Users\\user\\Desktop\\NLP\\data\\pku_training.utf8");
-        std::ofstream ofs("C:\\Users\\user\\Desktop\\-\\datasets\\chinese_sentenses.txt");
-        while (!ifs.eof())
-        {
-            string line;
-            getline(ifs, line);
-            wstring wb = conv.from_bytes(line);
-            wstring ob;
-            for (const wchar_t& c : wb) {
-                if (c != ' ')
-                    ob += c;
-            }
-            std::string narrowStr = conv.to_bytes(ob);
-            ofs << narrowStr << endl;
-        }
     }
     void work() {
         get_docs_data();
@@ -260,7 +244,7 @@ public:
     }
 
     // Bidirectional maximum matching segmentation
-    vector<wstring> fo_max_match(const wstring& sentence, const int maxlen = 3) {
+    vector<wstring> fo_max_match(const wstring& sentence, const int maxlen = 6) {
         vector<wstring> result;
         wstring tmp_word;
 
@@ -276,7 +260,8 @@ public:
             }
 
             index++;
-            result.push_back(tmp_word);
+            if(stop_words_trie->find(tmp_word) == 0)
+                result.push_back(tmp_word);
         }
 
         return result;
@@ -312,10 +297,8 @@ public:
 
         for (auto words : docs_words) {
             for (auto w : words) {
-                if (stop_words_trie->find(w) != 0) {
-                    docs_words_trie->insert(w);
-                    vocab.insert(w);
-                }
+                docs_words_trie->insert(w);
+                vocab.insert(w);
             }
         }
 
@@ -421,7 +404,7 @@ public:
             tmp_tf_idf[i].val /= tmp_norm;
         }
     }
-    vector<wstring> tokenize(const wstring& s) {
+    vector<wstring> english_tokenize(const wstring& s) {
         vector<wstring> tokens;
         wstring token;
         for (int i = 0; i < s.size(); i++) {
@@ -510,14 +493,10 @@ public:
         vector<wstring> q_tokenize = fo_max_match(q);
         vector<int> q_docs_score = docs_score(q_tokenize);
 
+        wcout.imbue(locale("chs"));
         for (int i = 0; i < top_n; i++) {
             cout << '[' << "NO." << i + 1 << ']' << endl; // 匹配度最高的第i个段落
-            for (const wchar_t& c : docs[q_docs_score[i]]) {
-                if (c != L' ') {
-                    wcout.imbue(locale("chs"));			//更改区域设置 只为控制台输出显示
-                    wcout << c;
-                }
-            }
+            wcout << docs[q_docs_score[i]];
             cout << endl << "-------------------------------------" << endl;
         }
     }
