@@ -1,4 +1,6 @@
 #include <iostream>
+#include <fstream>
+#include <codecvt>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -7,6 +9,8 @@
 #include <set>
 #include <map>
 #include <fstream>
+#include <windows.h>
+#include <wchar.h>
 
 // TF method
 double safe_log(double x) {
@@ -40,11 +44,10 @@ using namespace std;
 class Trie {
     struct Node {
     public:
-        bool is_word;
         int count;
-        map<char, Node*> child;
+        map<wchar_t, Node*> child;
     public:
-        Node(bool _is_word = false) : is_word(_is_word), count(0) {
+        Node() : count(0) {
 
         }
     };
@@ -56,31 +59,27 @@ public:
         root = new Node();
     }
 
-    void insert(const string& sentence) {
+    void insert(const wstring& sentence) {
         Node* p = root;
-        for (const char& c : sentence) {
+        for (const wchar_t& c : sentence) {
             if (p->child.count(c) == 0) {
                 p->child[c] = new Node();
             }
             p = p->child[c];
         }
-        p->is_word = true;
         p->count++;
     }
 
-    int find(const string& sentence) {
+    int find(const wstring& sentence) {
         Node* p = root;
-        for (const char& c : sentence) {
+        for (const wchar_t& c : sentence) {
             if (p->child.count(c) == 0) {
                 return 0;
             }
             p = p->child[c];
         }
 
-        if (p->is_word == true) {
-            return p->count;
-        }
-        else return 0;
+        return p->count;
     }
 };
 
@@ -90,7 +89,8 @@ class TF_IDF {
         int id;
         double val;
     };
-public:
+
+private:
     enum class TFMethod { LOG, AUGMENTED, BOOLEAN, LOG_AVG };
     enum class IDFMethod { LOG, OTHER };
     unordered_map<TFMethod, decltype(&log_tf)> tf_methods;
@@ -101,19 +101,18 @@ public:
     IDFMethod IDFM;
 
     // raw data
-    string docs_data_path;
-    string stop_data_path;
-    vector<string> docs;
+    vector<wstring> docs;
 
     // Trie attribute
     Trie* docs_words_trie;
     Trie* stop_words_trie;
+    Trie* dictionary_trie;
 
     // proprocessing data
-    vector<vector<string>> docs_words;
-    set<string> vocab;
-    unordered_map<string, int> v2i;
-    unordered_map<int, string> i2v;
+    vector<vector<wstring>> docs_words;
+    set<wstring> vocab;
+    unordered_map<wstring, int> v2i;
+    unordered_map<int, wstring> i2v;
 
     // tf-idf matrix
     vector<vector<Sparse>> tf;              // [n_docs](vocab_j)
@@ -121,8 +120,9 @@ public:
     vector<vector<Sparse>> tf_idf;          // [n_docs](vocab_j)
 public:
 
-    TF_IDF(const string _docs_data_path, string _stop_data_path, TFMethod _TFM = TFMethod::LOG_AVG, IDFMethod _TDFM = IDFMethod::LOG) :
-        docs_data_path(_docs_data_path), TFM(_TFM), IDFM(_TDFM), stop_data_path(_stop_data_path), docs_words_trie(new Trie()), stop_words_trie(new Trie())
+    TF_IDF(TFMethod _TFM = TFMethod::LOG_AVG, IDFMethod _TDFM = IDFMethod::LOG) :
+        TFM(_TFM), IDFM(_TDFM),
+        docs_words_trie(new Trie()), stop_words_trie(new Trie()), dictionary_trie(new Trie())
     {
         tf_methods = {
             {TFMethod::LOG, log_tf},
@@ -134,9 +134,20 @@ public:
             {IDFMethod::LOG, log_idf},
             {IDFMethod::OTHER, other_idf}
         };
-        
-        get_docs_data(docs_data_path);
-        get_stop_word(stop_data_path);
+    }
+
+    // debug 
+    void test() {
+        get_dictionary();
+        wstring q1 = L"各项工作必须以经济建设为中心";
+        vector<wstring> ans = fo_max_match(q1);
+
+        cout << "OK";
+    }
+    void work() {
+        get_docs_data();
+        get_stop_word();
+        get_dictionary();
         preprocess_docs();
         get_tf();
         get_idf();
@@ -145,32 +156,152 @@ public:
     }
 
     // Dataset preprocessing methods
-    void get_docs_data(const string file_path) {//传入引用，减少拷贝消耗
-        ifstream file(file_path);
-        string line;
+    void get_docs_data() {//传入引用，减少拷贝消耗
+        std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 
-        while (!getline(file, line).fail()) {//当未到文件尾
-            docs.push_back(line);
+        std::ifstream ifs(L"datasets\\pku_training.utf8");
+        while (!ifs.eof())
+        {
+            string line;
+            getline(ifs, line);
+            wstring wb = conv.from_bytes(line);
+            docs.push_back(wb);
+            docs_words_trie->insert(wb);
         }
     }
-    void get_stop_word(const string file_path) {
-        ifstream file(file_path);
-        string line;
+    void get_stop_word() {
+        std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 
-        while (!getline(file, line).fail()) {//当未到文件尾
-            stop_words_trie->insert(line);
+        std::ifstream ifs(L"datasets\\chinese_stop_words.txt");
+        while (!ifs.eof())
+        {
+            string line;
+            getline(ifs, line);
+            wstring wb = conv.from_bytes(line);
+            stop_words_trie->insert(wb);
         }
+    }
+    void get_dictionary() {
+        std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
+
+        std::ifstream ifs(L"datasets\\chinese_dictionary.txt");
+        while (!ifs.eof())
+        {
+            string line;
+            getline(ifs, line);
+            wstring wb = conv.from_bytes(line);
+            dictionary_trie->insert(wb);
+        }
+    }
+    std::string String_TO_UTF8(std::string str)
+    {
+
+        int nwLen = ::MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, NULL, 0);
+        wchar_t* pwBuf = new wchar_t[nwLen + 1];
+        ZeroMemory(pwBuf, nwLen * 2 + 2);
+
+        ::MultiByteToWideChar(CP_ACP, 0, str.c_str(), str.length(), pwBuf, nwLen);
+
+        int nLen = ::WideCharToMultiByte(CP_UTF8, 0, pwBuf, -1, NULL, NULL, NULL, NULL);
+
+        char* pBuf = new char[nLen + 1];
+        ZeroMemory(pBuf, nLen + 1);
+
+        ::WideCharToMultiByte(CP_UTF8, 0, pwBuf, nwLen, pBuf, nLen, NULL, NULL);
+
+        std::string retStr(pBuf);
+
+        delete[]pwBuf;
+        delete[]pBuf;
+
+        pwBuf = NULL;
+        pBuf = NULL;
+
+        return retStr;
+
+    }
+    std::string UTF8_To_String(const string& s)
+    {
+        if (s.empty())
+        {
+            return string();
+        }
+
+        wstring result;
+
+        int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, NULL, 0);
+        wchar_t* buffer = new wchar_t[n];
+
+        ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, buffer, n);
+
+        result = buffer;
+        delete[] buffer;
+
+        string result2;
+        int len = WideCharToMultiByte(CP_ACP, 0, result.c_str(), result.size(), NULL, 0, NULL, NULL);
+        char* buffer2 = new char[len + 1];
+        WideCharToMultiByte(CP_ACP, 0, result.c_str(), result.size(), buffer2, len, NULL, NULL);
+        buffer2[len] = '\0';
+        result2.append(buffer2);
+        delete[] buffer2;
+
+        return result2;
+    }
+
+    // Bidirectional maximum matching segmentation
+    vector<wstring> fo_max_match(const wstring& sentence, const int maxlen = 3) {
+        vector<wstring> result;
+        wstring tmp_word;
+
+        int index = 0;
+        int sentence_len = sentence.size();
+        while (index < sentence_len) {
+            for (int match_size = min(maxlen, sentence_len - index); match_size > 0; match_size--) {
+                tmp_word = sentence.substr(index, match_size);
+                if (dictionary_trie->find(tmp_word) != 0) {
+                    index = index + match_size - 1;
+                    break;
+                }
+            }
+
+            index++;
+            result.push_back(tmp_word);
+        }
+
+        return result;
+    }
+    vector<wstring> re_max_match(const wstring& sentence, const int maxlen = 6) {
+        vector<wstring> result;
+        wstring tmp_word;
+
+        int index = sentence.size();
+        while (index >= 0) {
+            for (int match_size = min(maxlen, index); match_size > 0; match_size--) {
+                tmp_word = sentence.substr(index - match_size, index);
+                if (dictionary_trie->find(tmp_word) != 0) {
+                    index = index - match_size;
+                    break;
+                }
+            }
+
+            index--;
+            result.push_back(tmp_word);
+        }
+
+        return result;
+    }
+    vector<wstring> BidirectionalMaximumMatch(const wstring& sentence, const int maxlen = 6) {
 
     }
     void preprocess_docs() {
-        for (const string& doc : docs) {
-            vector<string> words;
-            string word = "";
-            for (char c : doc) {
+        for (const wstring& doc : docs) {
+            vector<wstring> words;
+            wstring word = L"";
+            for (const wchar_t& c : doc) {
                 if (c == ' ') {
-                    if (word != "") {
+                    if (word != L"") {
                         words.push_back(word);
-                        word = "";
+                        word = L"";
                     }
                 }
                 else if (c == ',' || c == '.') {
@@ -180,7 +311,7 @@ public:
                     word += c;
                 }
             }
-            if (word != "") {
+            if (word != L"") {
                 if (stop_words_trie->find(word) == 0) {
                     words.push_back(word);
                     docs_words_trie->insert(word);
@@ -203,14 +334,14 @@ public:
         }
     }
 
-    // Basic treatment methods
+    // Basic  methods
     void get_tf() {
         tf.resize(docs.size());                         // [n_docs](vocab_j)  
         vector<double> max_tf(docs_words.size(), 0.0);  // [n_docs}
         vector<double> avg_tf(docs_words.size(), 0.0);  // [n_docs]
         for (int i = 0; i < docs_words.size(); ++i) {
-            map<string, int> counter;                   // Word counter
-            set<string> unique_word;
+            map<wstring, int> counter;                   // Word counter
+            set<wstring> unique_word;
             for (const auto& word : docs_words[i]) {
                 ++counter[word];
                 max_tf[i] = max(max_tf[i], static_cast<double>(counter[word]));
@@ -297,12 +428,12 @@ public:
             tmp_tf_idf[i].val /= tmp_norm;
         }
     }
-    vector<string> tokenize(const string& s) {
-        vector<string> tokens;
-        string token;
+    vector<wstring> tokenize(const wstring& s) {
+        vector<wstring> tokens;
+        wstring token;
         for (int i = 0; i < s.size(); i++) {
-            char c = s[i];
-            if (c != ' ') {
+            wchar_t c = s[i];
+            if (c != L' ') {
                 token += c;
             }
             else if (!token.empty()) {
@@ -338,7 +469,7 @@ public:
 
         return similarity;
     }
-    vector<int> docs_score(const vector<string>& query) {
+    vector<int> docs_score(const vector<wstring>& query) {
         // Calculate the tf-idf vector of the query
         int total_words = 0;
         double q_max_tf = 0.0;
@@ -382,14 +513,17 @@ public:
         }
         return doc_indices;
     }
-    void query(const string& q, int top_n = 3) {
-        vector<string> q_tokenize = tokenize(q);
+    void query(const wstring& q, int top_n = 5) {
+        vector<wstring> q_tokenize = fo_max_match(q);
         vector<int> q_docs_score = docs_score(q_tokenize);
 
         for (int i = 0; i < top_n; i++) {
             cout << '[' << "NO." << i + 1 << ']' << endl; // 匹配度最高的第i个段落
-            for (const char& c : docs[q_docs_score[i]]) {
-                if (c != ' ') cout << c;
+            for (const wchar_t& c : docs[q_docs_score[i]]) {
+                if (c != L' ') {
+                    wcout.imbue(locale("chs"));			//更改区域设置 只为控制台输出显示
+                    wcout << c;
+                }
             }
             cout << endl << "-------------------------------------" << endl;
         }
@@ -398,16 +532,13 @@ public:
 
 int main() {
 
-    string docs_data_path("datasets\\chinese_separate_sentences.txt");
-    string stop_data_path("datasets\\chinese_stop_words.txt");
-    // string stop_data_path("datasets\\block_file.txt");
-    string dictionary_path("datasets\\chinese_dictionary.txt");
-    string q = "各项  工作  必须  以  经济  建设  为中心";
-    // string q = "driven through midwicket for a couple of runs";
-    // string q = "around the wicket"(exact search similar to google search)
+    wstring q1 = L"各项工作必须以经济建设为中心";
+    string q2 = "driven through midwicket for a couple of runs";
+    string q3 = "around the wicket";
 
-    TF_IDF tf_idf(docs_data_path, stop_data_path);
-    tf_idf.query(q, 5);
+    TF_IDF* tf_idf = new TF_IDF();
+    tf_idf->work();
+    tf_idf->query(q1);
 
     return 0;
 }
