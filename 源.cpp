@@ -143,7 +143,9 @@ public:
 
     // debug 
     void test() {
-
+        get_stop_word();
+        get_dictionary();
+        get_query();
     }
     void work(int top_n = 5) {
         get_stop_word();
@@ -194,7 +196,7 @@ public:
         string line;
         getline(ifs, line);
         wstring wb = conv.from_bytes(line);
-        q_tokenize = fo_max_match(wb);
+        q_tokenize = re_max_match(wb);
         for (int i = 0; i < q_tokenize.size(); i++) {
             query_words_trie->insert(q_tokenize[i]);
         }
@@ -242,17 +244,18 @@ public:
         wstring tmp_word;
 
         int index = sentence.size();
-        while (index >= 0) {
+        while (index > 0) {
             for (int match_size = min(maxlen, index); match_size > 0; match_size--) {
-                tmp_word = sentence.substr(index - match_size, index);
+                tmp_word = sentence.substr(index - match_size, match_size);
                 if (dictionary_trie->find(tmp_word) != 0) {
-                    index = index - match_size;
+                    index = index - match_size + 1;
                     break;
                 }
             }
 
             index--;
-            result.push_back(tmp_word);
+            if (stop_words_trie->find(tmp_word) == 0)
+                result.push_back(tmp_word);
         }
 
         return result;
@@ -265,7 +268,7 @@ public:
         
         int num = 0;
         for (const wstring& doc : docs) {
-            vector<wstring> words = fo_max_match(doc);
+            vector<wstring> words = re_max_match(doc);
             bool is_in = false;
             for (const wstring& w : words) {
                 if (query_words_trie->find(w) != 0) {
@@ -338,8 +341,8 @@ public:
     }
     void get_idf() {
         clock_t startime = clock();
-        vector<double> df(i2v.size());                  // The number of times each word appears
-        for (int i = 0; i < i2v.size(); ++i) {
+        vector<double> df(vocab.size());                  // The number of times each word appears
+        for (int i = 0; i < vocab.size(); ++i) {
             df[i] = static_cast<double>(docs_words_trie->find(i2v[i]));
         }
 
@@ -349,15 +352,15 @@ public:
         }
 
         const double N = docs_words.size();
-        idf.resize(i2v.size());
+        idf.resize(vocab.size());
         for (int i = 0; i < idf.size(); i++) {
-            idf[i] = idf_fn->second(df[i], i2v.size());
+            idf[i] = idf_fn->second(df[i], vocab.size());
         }
         cout << "calculate idf: " << (double)(clock() - startime) / 1000 << "s" << endl;
     }
     void calculate_tf_idf() {
         clock_t startime = clock();
-        tf_idf.resize(docs.size());
+        tf_idf.resize(docs_words.size());
         for (int i = 0; i < tf.size(); i++) {
             for (int j = 0; j < tf[i].size(); j++) {
                 int id = tf[i][j].id;
@@ -419,8 +422,8 @@ public:
     vector<pair<int, double>> cosine_similarity(vector<Sparse>& q_tf_idf) {
         // Calculate unit vector of query
         cosine_transform(q_tf_idf);
-        vector<pair<int, double>> similarity(docs.size());
-        for (int i = 0; i < docs.size(); i++) {
+        vector<pair<int, double>> similarity(docs_words.size());
+        for (int i = 0; i < docs_words.size(); i++) {
             double similarity_val = 0.0;
             for (int j1 = 0, j2 = 0; j1 < tf_idf[i].size() && j2 < q_tf_idf.size();) {
                 int id1 = tf_idf[i][j1].id, id2 = q_tf_idf[j2].id;
@@ -439,7 +442,7 @@ public:
     }
     vector<int> docs_score(const vector<wstring>& query) {
         // Calculate the tf-idf vector of the query
-        int total_words = 0;
+        int N = 0;
         double q_max_tf = 0.0;
         double q_avg_tf = 0.0;
         vector<int> q_words_count(vocab.size(), 0);
@@ -447,7 +450,7 @@ public:
             if (v2i.count(word) != 0) {
                 q_words_count[v2i[word]]++;
                 if (q_words_count[v2i[word]] == 1)
-                    total_words++;
+                    N++;
             }
         }
 
@@ -455,7 +458,7 @@ public:
             q_max_tf = max(q_max_tf, (double)q_words_count[i]);
             q_avg_tf += q_words_count[i];
         }
-        q_avg_tf /= (double)total_words;
+        q_avg_tf /= (double)N;
 
         auto tf_fn = tf_methods.find(TFM);                   // tf method
         if (tf_fn == tf_methods.end()) {
@@ -485,9 +488,9 @@ public:
         clock_t startime = clock();
         vector<int> q_docs_score = docs_score(q_tokenize);
         cout << "Processing query: " << (double)(clock() - startime) / 1000 << "s" << endl;
-        cout << endl << "top " << top_n << "similar paragraphs:" << endl;
+        cout << endl << "top " << min(top_n, docs_words.size()) << " similar paragraphs:" << endl;
         wcout.imbue(locale("chs")); // Output in console
-        for (int i = 0; i < top_n; i++) {
+        for (int i = 0; i < min(top_n, docs_words.size()); i++) {
             cout << '[' << "NO." << i + 1 << ']' << endl; 
             wcout << docs[to_raw_docs[q_docs_score[i]]];
             cout << endl << "-------------------------------------" << endl;
