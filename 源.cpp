@@ -199,7 +199,7 @@ public:
             query_words_trie->insert(q_tokenize[i]);
         }
     }
-    void get_docs_data() {//传入引用，减少拷贝消耗
+    void get_docs_data() {
         clock_t startime = clock();
         std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 
@@ -241,7 +241,7 @@ public:
         vector<wstring> result;
         wstring tmp_word;
 
-        int index = sentence.size(); // 迈向充满希望的未来
+        int index = sentence.size();
         while (index >= 0) {
             for (int match_size = min(maxlen, index); match_size > 0; match_size--) {
                 tmp_word = sentence.substr(index - match_size, index);
@@ -300,10 +300,10 @@ public:
     void get_tf() {
         clock_t startime = clock();
         tf.resize(docs_words.size());                         // [n_docs](vocab_j)  
-        vector<double> max_tf(docs_words.size(), 0.0);  // [n_docs}
-        vector<double> avg_tf(docs_words.size(), 0.0);  // [n_docs]
+        vector<double> max_tf(docs_words.size(), 0.0);        // [n_docs}
+        vector<double> avg_tf(docs_words.size(), 0.0);        // [n_docs]
         for (int i = 0; i < docs_words.size(); ++i) {
-            map<wstring, int> counter;                   // Word counter
+            map<wstring, int> counter;                        // Word counter
             set<wstring> unique_word;
             for (const auto& word : docs_words[i]) {
                 ++counter[word];
@@ -321,7 +321,7 @@ public:
             }
         }
 
-        auto tf_fn = tf_methods.find(TFM);                   // tf method
+        auto tf_fn = tf_methods.find(TFM);                    // tf method
         if (tf_fn == tf_methods.end()) {
             throw invalid_argument("Invalid TF method");
         }
@@ -485,9 +485,10 @@ public:
         clock_t startime = clock();
         vector<int> q_docs_score = docs_score(q_tokenize);
         cout << "Processing query: " << (double)(clock() - startime) / 1000 << "s" << endl;
-        wcout.imbue(locale("chs")); // 在控制台输出
+        cout << endl << "top " << top_n << "similar paragraphs:" << endl;
+        wcout.imbue(locale("chs")); // Output in console
         for (int i = 0; i < top_n; i++) {
-            cout << '[' << "NO." << i + 1 << ']' << endl; // 匹配度最高的第i个段落
+            cout << '[' << "NO." << i + 1 << ']' << endl; 
             wcout << docs[to_raw_docs[q_docs_score[i]]];
             cout << endl << "-------------------------------------" << endl;
         }
@@ -495,8 +496,10 @@ public:
 };
 
 int main() {
+    clock_t startime = clock();
     TF_IDF* tf_idf = new TF_IDF();
     tf_idf->work();
 
+    cout << "total time: " << (double)(clock() - startime) / 1000 << "s" << endl;
     return 0;
 }
