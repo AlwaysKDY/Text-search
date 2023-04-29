@@ -82,6 +82,21 @@ public:
 
         return p->count;
     }
+
+    void clear() {
+        remove(root);
+        root = new Node();
+    }
+
+    void remove(Node* p) {
+        if (p == NULL) return;
+        else {
+            for (auto tmp : p->child) {
+                remove(tmp.second);
+            }
+            delete p;
+        }
+    }
 };
 
 class TF_IDF {
@@ -103,12 +118,12 @@ private:
 
     // raw data
     vector<wstring> docs;
-    vector<wstring> q_tokenize;
-
-    // Trie attribute
-    Trie* docs_words_trie;
     Trie* stop_words_trie;
     Trie* dictionary_trie;
+
+    // Trie attribute
+    vector<wstring> q_tokenize;
+    Trie* docs_words_trie;
     Trie* query_words_trie;
 
     // proprocessing data
@@ -123,11 +138,17 @@ private:
     vector<double> idf;                     // [n_vocab]
     vector<vector<Sparse>> tf_idf;          // [n_docs](vocab_j)
 
+    //logging
+    int logging;
 public:
 
-    TF_IDF(TFMethod _TFM = TFMethod::LOG_AVG, IDFMethod _TDFM = IDFMethod::LOG) :
+    TF_IDF(int _logging = 0, TFMethod _TFM = TFMethod::LOG_AVG, IDFMethod _TDFM = IDFMethod::LOG) :
+        logging(_logging),
         TFM(_TFM), IDFM(_TDFM),
-        docs_words_trie(new Trie()), stop_words_trie(new Trie()), dictionary_trie(new Trie()), query_words_trie(new Trie())
+        docs_words_trie(new Trie()), 
+        stop_words_trie(new Trie()), 
+        dictionary_trie(new Trie()), 
+        query_words_trie(new Trie())
     {
         tf_methods = {
             {TFMethod::LOG, log_tf},
@@ -139,25 +160,22 @@ public:
             {IDFMethod::LOG, log_idf},
             {IDFMethod::OTHER, other_idf}
         };
+
+        get_stop_word();
+        get_dictionary();
+        get_docs_data();
     }
 
-    // debug 
-    void test() {
-        get_stop_word();
-        get_dictionary();
-        get_query();
-    }
-    void work(int top_n = 5) {
-        get_stop_word();
-        get_dictionary();
-        get_query();
-        get_docs_data();
+    void work(const wstring& q, int top_n = 5) {
+        clock_t startime = clock();
+        get_query(q);
         preprocess_docs();
         get_tf();
         get_idf();
         calculate_tf_idf();
         cosine_transform(tf_idf);
         query(top_n);
+        if (logging == 1) cout << "query time:" << (double)(clock() - startime) / 1000 << "s" << endl;
     }
 
     // Dataset preprocessing methods
@@ -166,6 +184,7 @@ public:
         std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 
         std::ifstream ifs(L"datasets\\chinese_stop_words.txt");
+        stop_words_trie->clear();
         while (!ifs.eof())
         {
             string line;
@@ -173,13 +192,14 @@ public:
             wstring wb = conv.from_bytes(line);
             stop_words_trie->insert(wb);
         }
-        cout << "Load stop words: " << (double)(clock() - startime) / 1000 << "s" << endl;
+        if(logging == 1) cout << "Load stop words: " << (double)(clock() - startime) / 1000 << "s" << endl;
     }
     void get_dictionary() {
         clock_t startime = clock();
         std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 
         std::ifstream ifs(L"datasets\\chinese_dictionary.txt");
+        dictionary_trie->clear();
         while (!ifs.eof())
         {
             string line;
@@ -187,25 +207,14 @@ public:
             wstring wb = conv.from_bytes(line);
             dictionary_trie->insert(wb);
         }
-        cout << "Load dictionary: " << (double)(clock() - startime) / 1000 << "s" << endl;
-    }
-    void get_query() {
-        std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
-
-        std::ifstream ifs(L"datasets\\query.txt");
-        string line;
-        getline(ifs, line);
-        wstring wb = conv.from_bytes(line);
-        q_tokenize = re_max_match(wb);
-        for (int i = 0; i < q_tokenize.size(); i++) {
-            query_words_trie->insert(q_tokenize[i]);
-        }
+        if (logging == 1) cout << "Load dictionary: " << (double)(clock() - startime) / 1000 << "s" << endl;
     }
     void get_docs_data() {
         clock_t startime = clock();
         std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 
         std::ifstream ifs(L"datasets\\chinese_sentenses.txt");
+        docs.clear();
         while (!ifs.eof())
         {
             string line;
@@ -213,32 +222,18 @@ public:
             wstring wb = conv.from_bytes(line);
             docs.push_back(wb);
         }
-        cout << "Load docs data: " << (double)(clock() - startime) / 1000 << "s" << endl;
+        if (logging == 1) cout << "Load docs data: " << (double)(clock() - startime) / 1000 << "s" << endl;
     }
+    void get_query(const wstring& q) {
+        q_tokenize = re_max_match(q);
 
-    // Bidirectional maximum matching segmentation
-    vector<wstring> fo_max_match(const wstring& sentence, const int maxlen = 6) {
-        vector<wstring> result;
-        wstring tmp_word;
-
-        int index = 0;
-        int sentence_len = sentence.size();
-        while (index < sentence_len) {
-            for (int match_size = min(maxlen, sentence_len - index); match_size > 0; match_size--) {
-                tmp_word = sentence.substr(index, match_size);
-                if (dictionary_trie->find(tmp_word) != 0) {
-                    index = index + match_size - 1;
-                    break;
-                }
-            }
-
-            index++;
-            if (stop_words_trie->find(tmp_word) == 0)
-                result.push_back(tmp_word);
+        query_words_trie->clear();
+        for (int i = 0; i < q_tokenize.size(); i++) {
+            query_words_trie->insert(q_tokenize[i]);
         }
-
-        return result;
     }
+
+    // maximum matching segmentation
     vector<wstring> re_max_match(const wstring& sentence, const int maxlen = 6) {
         vector<wstring> result;
         wstring tmp_word;
@@ -260,13 +255,12 @@ public:
 
         return result;
     }
-    vector<wstring> BidirectionalMaximumMatch(const wstring& sentence, const int maxlen = 6) {
-
-    }
     void preprocess_docs() {
         clock_t startime = clock();
         
         int num = 0;
+        to_raw_docs.clear();
+        docs_words.clear();
         for (const wstring& doc : docs) {
             vector<wstring> words = re_max_match(doc);
             bool is_in = false;
@@ -283,25 +277,30 @@ public:
             num++;
         }
 
-        for (auto words : docs_words) {
-            for (auto w : words) {
+        docs_words_trie->clear();
+        vocab.clear();
+        for (const auto& words : docs_words) {
+            for (const auto& w : words) {
                 docs_words_trie->insert(w);
                 vocab.insert(w);
             }
         }
 
         int idx = 0;
-        for (auto v : vocab) {
+        v2i.clear();
+        i2v.clear();
+        for (const auto& v : vocab) {
             v2i[v] = idx;
             i2v[idx] = v;
             idx++;
         }
-        cout << "preprocess docs data: " << (double)(clock() - startime) / 1000 << "s" << endl;
+        if (logging == 1) cout << "preprocess docs data: " << (double)(clock() - startime) / 1000 << "s" << endl;
     }
 
     // Basic methods
     void get_tf() {
         clock_t startime = clock();
+        tf.clear();
         tf.resize(docs_words.size());                         // [n_docs](vocab_j)  
         vector<double> max_tf(docs_words.size(), 0.0);        // [n_docs}
         vector<double> avg_tf(docs_words.size(), 0.0);        // [n_docs]
@@ -337,7 +336,7 @@ public:
                 tf[i][j].val = tf_fn->second(val, avg_tf[i]);
             }
         }
-        cout << "calculate tf: " << (double)(clock() - startime) / 1000 << "s" << endl;
+        if (logging == 1) cout << "calculate tf: " << (double)(clock() - startime) / 1000 << "s" << endl;
     }
     void get_idf() {
         clock_t startime = clock();
@@ -352,22 +351,24 @@ public:
         }
 
         const double N = docs_words.size();
+        idf.clear();
         idf.resize(vocab.size());
         for (int i = 0; i < idf.size(); i++) {
             idf[i] = idf_fn->second(df[i], vocab.size());
         }
-        cout << "calculate idf: " << (double)(clock() - startime) / 1000 << "s" << endl;
+        if (logging == 1) cout << "calculate idf: " << (double)(clock() - startime) / 1000 << "s" << endl;
     }
     void calculate_tf_idf() {
         clock_t startime = clock();
         tf_idf.resize(docs_words.size());
         for (int i = 0; i < tf.size(); i++) {
+            tf_idf[i].clear();
             for (int j = 0; j < tf[i].size(); j++) {
                 int id = tf[i][j].id;
                 tf_idf[i].push_back({ id, tf[i][j].val * idf[id] });
             }
         }
-        cout << "calculate tf: " << (double)(clock() - startime) / 1000 << "s" << endl;
+        if (logging == 1) cout << "calculate tf: " << (double)(clock() - startime) / 1000 << "s" << endl;
     }
     void cosine_transform(vector<vector<Sparse>>& tmp_tf_idf) {
         vector<double> tmp_norm(tmp_tf_idf.size(), 0.0); // The norm of sentence
@@ -398,24 +399,6 @@ public:
         for (int i = 0; i < tmp_tf_idf.size(); i++) {
             tmp_tf_idf[i].val /= tmp_norm;
         }
-    }
-    vector<wstring> english_tokenize(const wstring& s) {
-        vector<wstring> tokens;
-        wstring token;
-        for (int i = 0; i < s.size(); i++) {
-            wchar_t c = s[i];
-            if (c != L' ') {
-                token += c;
-            }
-            else if (!token.empty()) {
-                tokens.push_back(token);
-                token.clear();
-            }
-        }
-        if (!token.empty()) {
-            tokens.push_back(token);
-        }
-        return tokens;
     }
 
     // Query methods
@@ -485,9 +468,7 @@ public:
         return doc_indices;
     }
     void query(int top_n = 5) {
-        clock_t startime = clock();
         vector<int> q_docs_score = docs_score(q_tokenize);
-        cout << "Processing query: " << (double)(clock() - startime) / 1000 << "s" << endl;
         cout << endl << "top " << min(top_n, docs_words.size()) << " similar paragraphs:" << endl;
         wcout.imbue(locale("chs")); // Output in console
         for (int i = 0; i < min(top_n, docs_words.size()); i++) {
@@ -499,10 +480,18 @@ public:
 };
 
 int main() {
-    clock_t startime = clock();
-    TF_IDF* tf_idf = new TF_IDF();
-    tf_idf->work();
+    TF_IDF* tf_idf = new TF_IDF(1);
 
-    cout << "total time: " << (double)(clock() - startime) / 1000 << "s" << endl;
+    wcin.imbue(locale("chs"));
+    while (true) {
+        cout << "请输入要查询的语句(Ctrl + Z取消)：";
+        wstring wq;
+        wcin >> wq;
+        if (wq.empty())
+            break;
+
+        tf_idf->work(wq);
+    }
+
     return 0;
 }
