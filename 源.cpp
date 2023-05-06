@@ -46,7 +46,7 @@ class Trie {
     struct Node {
     public:
         int count;
-        map<wchar_t, Node*> child;
+        map<wchar_t, Node*> child;//每层为一个map,存一个中文字符
     public:
         Node() : count(0) {
 
@@ -60,7 +60,7 @@ public:
         root = new Node();
     }
 
-    void insert(const wstring& sentence) {
+    void insert(const wstring& sentence) {//将sentence插入到trie中
         Node* p = root;
         for (const wchar_t& c : sentence) {
             if (p->child.count(c) == 0) {
@@ -71,7 +71,7 @@ public:
         p->count++;
     }
 
-    int find(const wstring& sentence) {
+    int find(const wstring& sentence) {//返回sentence出现的次数
         Node* p = root;
         for (const wchar_t& c : sentence) {
             if (p->child.count(c) == 0) {
@@ -91,7 +91,7 @@ public:
     void remove(Node* p) {
         if (p == NULL) return;
         else {
-            for (auto tmp : p->child) {
+            for (auto& tmp : p->child) {
                 remove(tmp.second);
             }
             delete p;
@@ -138,6 +138,11 @@ private:
     vector<double> idf;                     // [n_vocab]
     vector<vector<Sparse>> tf_idf;          // [n_docs](vocab_j)
 
+    //分词结果
+   vector< vector<wstring> > words;
+
+   //倒排索引
+   unordered_map<wstring, vector<int> >re_index;
     //logging
     int logging;
 public:
@@ -145,14 +150,14 @@ public:
     TF_IDF(int _logging = 0, TFMethod _TFM = TFMethod::LOG_AVG, IDFMethod _TDFM = IDFMethod::LOG) :
         logging(_logging),
         TFM(_TFM), IDFM(_TDFM),
-        docs_words_trie(new Trie()), 
-        stop_words_trie(new Trie()), 
-        dictionary_trie(new Trie()), 
+        docs_words_trie(new Trie()),
+        stop_words_trie(new Trie()),
+        dictionary_trie(new Trie()),
         query_words_trie(new Trie())
     {
         tf_methods = {
             {TFMethod::LOG, log_tf},
-            {TFMethod::BOOLEAN, augmented_tf},
+            {TFMethod::AUGMENTED, augmented_tf},
             {TFMethod::BOOLEAN, boolean_tf},
             {TFMethod::LOG_AVG, log_avg_tf}
         };
@@ -164,6 +169,9 @@ public:
         get_stop_word();
         get_dictionary();
         get_docs_data();
+        segment_doc();//对文件整体分词
+        get_re_index();//获得倒排索引
+
     }
 
     void work(const wstring& q, int top_n = 5) {
@@ -179,7 +187,7 @@ public:
     }
 
     // Dataset preprocessing methods
-    void get_stop_word() {
+    void get_stop_word() {//
         clock_t startime = clock();
         std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 
@@ -189,12 +197,12 @@ public:
         {
             string line;
             getline(ifs, line);
-            wstring wb = conv.from_bytes(line);
+            wstring wb = conv.from_bytes(line);//转为wstring
             stop_words_trie->insert(wb);
         }
-        if(logging == 1) cout << "Load stop words: " << (double)(clock() - startime) / 1000 << "s" << endl;
+        if (logging == 1) cout << "Load stop words: " << (double)(clock() - startime) / 1000 << "s" << endl;
     }
-    void get_dictionary() {
+    void get_dictionary() {//
         clock_t startime = clock();
         std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 
@@ -209,7 +217,7 @@ public:
         }
         if (logging == 1) cout << "Load dictionary: " << (double)(clock() - startime) / 1000 << "s" << endl;
     }
-    void get_docs_data() {
+    void get_docs_data() {//
         clock_t startime = clock();
         std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 
@@ -224,7 +232,7 @@ public:
         }
         if (logging == 1) cout << "Load docs data: " << (double)(clock() - startime) / 1000 << "s" << endl;
     }
-    void get_query(const wstring& q) {
+    void get_query(const wstring& q) {//
         q_tokenize = re_max_match(q);
 
         query_words_trie->clear();
@@ -255,37 +263,72 @@ public:
 
         return result;
     }
-    void preprocess_docs() {
+    //对doc进行分词
+    void segment_doc() {
+        for (const wstring& doc : docs) {
+            words.push_back( re_max_match(doc));
+        }
+    }
+
+    void get_re_index() {
+        int section_index = 0;
+        for (auto& section : words) {
+            for (auto& rword : section) {
+                auto it = re_index.find(rword);
+                if (it != re_index.end()) {
+                    if (it->second.back() != section_index) {
+                        it->second.push_back(section_index);
+                    }
+                }
+                else {
+                    re_index.insert({ rword,{section_index} });
+                }
+            }
+            section_index++;
+        }
+    }
+    void preprocess_docs() {//====
         clock_t startime = clock();
-        
+
         int num = 0;
         to_raw_docs.clear();
         docs_words.clear();
-        for (const wstring& doc : docs) {
-            vector<wstring> words = re_max_match(doc);
-            bool is_in = false;
-            for (const wstring& w : words) {
-                if (query_words_trie->find(w) != 0) {
-                    is_in = true;
-                    break;
+        set<int>select_index;
+        for (auto qword : q_tokenize) {
+            auto qword_re_index = re_index.find(qword);
+            if (qword_re_index != re_index.end()) {
+                for (auto num : qword_re_index->second) {
+                    select_index.insert(num);
                 }
             }
-            if (is_in) {
-                to_raw_docs.push_back(num);
-                docs_words.push_back(words);
-            }
-            num++;
         }
+        //for (const wstring& doc : docs) {
+        //    bool is_in = false;
+        //    for (const wstring& w : words) {//分词后，依次筛选doc中的每一段
+        //        if (query_words_trie->find(w) != 0) {//只要任何一个词在query中，该段就true
+        //            is_in = true;
+        //            break;
+        //        }
+        //    }
 
+        //    if (is_in) {//将标记的句子加入集合
+        //        to_raw_docs.push_back(num);
+        //        docs_words.push_back(words); 
+        //    }
+        //    num++;
+        //}
+        for (auto index : select_index) {
+            to_raw_docs.push_back(index);
+            docs_words.push_back(words[index]);
+        }
         docs_words_trie->clear();
         vocab.clear();
-        for (const auto& words : docs_words) {
+        for (const auto& words : docs_words) {//使用过滤后的段落生成字典树
             for (const auto& w : words) {
                 docs_words_trie->insert(w);
-                vocab.insert(w);
+                vocab.insert(w);//所有词的集合
             }
         }
-
         int idx = 0;
         v2i.clear();
         i2v.clear();
@@ -423,8 +466,9 @@ public:
 
         return similarity;
     }
+    // Calculate the tf-idf vector of the query
     vector<int> docs_score(const vector<wstring>& query) {
-        // Calculate the tf-idf vector of the query
+        
         int N = 0;
         double q_max_tf = 0.0;
         double q_avg_tf = 0.0;
@@ -467,12 +511,13 @@ public:
         }
         return doc_indices;
     }
+    
     void query(int top_n = 5) {
         vector<int> q_docs_score = docs_score(q_tokenize);
         cout << endl << "top " << min(top_n, docs_words.size()) << " similar paragraphs:" << endl;
         wcout.imbue(locale("chs")); // Output in console
         for (int i = 0; i < min(top_n, docs_words.size()); i++) {
-            cout << '[' << "NO." << i + 1 << ']' << endl; 
+            cout << '[' << "NO." << i + 1 << ']' << endl;
             wcout << docs[to_raw_docs[q_docs_score[i]]];
             cout << endl << "-------------------------------------" << endl;
         }
@@ -484,7 +529,7 @@ int main() {
 
     wcin.imbue(locale("chs"));
     while (true) {
-        cout << "������Ҫ��ѯ�����(Ctrl + Zȡ��)��";
+        cout << "请输入要查询的语句(Ctrl + Z取消)：";
         wstring wq;
         wcin >> wq;
         if (wq.empty())
